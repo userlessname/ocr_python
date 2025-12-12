@@ -18,7 +18,7 @@ This is a Python script that performs OCR on images copied to the clipboard. The
 2. Install the required libraries using pip: `pip install pytesseract pillow pyperclip`.
 
 ## Usage
-
+Pause key
 1. Run the script using the command `python main.py`.
 2. Copy an image to the clipboard (e.g. a screenshot of text).
 3. The script will automatically detect the new image in the clipboard and perform OCR on it.
