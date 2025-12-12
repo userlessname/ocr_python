@@ -1,0 +1,436 @@
+import datetime
+import os
+import time
+import threading
+import numpy as np
+import pyperclip
+import re
+import cv2
+from PIL import Image, ImageEnhance, ImageGrab, ImageOps, ImageDraw, ImageTk
+from pytesseract import pytesseract
+import keyboard
+import pystray
+from pystray import MenuItem as item
+from PIL import Image as PILImage
+import sys
+import tkinter as tk
+import ctypes
+
+# Make the app DPI aware for Windows scaling
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+except:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except:
+        pass
+
+# Global state
+timestamp = None
+pics_dir_path = None
+dir_path = os.path.dirname(os.path.realpath(__file__))
+pics_dir_path = os.path.join(dir_path, "pics")
+running = True
+tray_icon = None
+snip_window = None
+
+# Add pics folder if not exist
+if not os.path.exists(pics_dir_path):
+    os.makedirs(pics_dir_path)
+
+
+def get_screen_size():
+    """Get actual screen size accounting for DPI scaling"""
+    user32 = ctypes.windll.user32
+    user32.SetProcessDPIAware()
+    width = user32.GetSystemMetrics(0)
+    height = user32.GetSystemMetrics(1)
+    return width, height
+
+
+class SnippingTool:
+    """Overlay window for selecting screen region"""
+    
+    def __init__(self, callback):
+        self.callback = callback
+        self.start_x = None
+        self.start_y = None
+        self.current_x = None
+        self.current_y = None
+        self.root = None
+        self.canvas = None
+        self.rect = None
+        self.screenshot = None
+        self.photo_image = None
+    
+    def start(self):
+        """Start the snipping overlay"""
+        # Take screenshot of entire screen first (at actual resolution)
+        self.screenshot = ImageGrab.grab(all_screens=True)
+        
+        # Get actual screen dimensions
+        screen_width, screen_height = get_screen_size()
+        
+        # Create fullscreen overlay
+        self.root = tk.Tk()
+        self.root.withdraw()  # Hide initially
+        
+        # Make DPI aware
+        try:
+            self.root.tk.call('tk', 'scaling', 1.0)
+        except:
+            pass
+        
+        # Remove window decorations and make fullscreen
+        self.root.overrideredirect(True)
+        self.root.geometry(f"{screen_width}x{screen_height}+0+0")
+        self.root.attributes('-topmost', True)
+        self.root.config(cursor="cross")
+        
+        # Create canvas with screenshot as background
+        self.canvas = tk.Canvas(
+            self.root,
+            width=screen_width,
+            height=screen_height,
+            highlightthickness=0
+        )
+        self.canvas.pack()
+        
+        # Create darkened version of screenshot for overlay effect
+        darkened = self.screenshot.copy()
+        darkened = Image.blend(darkened, Image.new('RGB', darkened.size, (0, 0, 0)), 0.4)
+        
+        # Resize to match screen if different (handles DPI scaling)
+        if darkened.size != (screen_width, screen_height):
+            darkened = darkened.resize((screen_width, screen_height), Image.Resampling.LANCZOS)
+        
+        self.photo_image = ImageTk.PhotoImage(darkened)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo_image)
+        
+        # Bind events
+        self.canvas.bind('<Button-1>', self.on_mouse_down)
+        self.canvas.bind('<B1-Motion>', self.on_mouse_drag)
+        self.canvas.bind('<ButtonRelease-1>', self.on_mouse_up)
+        self.root.bind('<Escape>', self.on_escape)
+        
+        # Instructions text
+        self.canvas.create_text(
+            screen_width // 2, 30,
+            text="Click and drag to select area. Press ESC to cancel.",
+            fill='white',
+            font=('Arial', 16, 'bold')
+        )
+        
+        # Show window
+        self.root.deiconify()
+        self.root.focus_force()
+        self.root.mainloop()
+    
+    def on_mouse_down(self, event):
+        """Mouse button pressed"""
+        self.start_x = event.x
+        self.start_y = event.y
+        
+        # Create rectangle
+        self.rect = self.canvas.create_rectangle(
+            self.start_x, self.start_y, self.start_x, self.start_y,
+            outline='#00ff00', width=2
+        )
+    
+    def on_mouse_drag(self, event):
+        """Mouse is being dragged"""
+        self.current_x = event.x
+        self.current_y = event.y
+        
+        # Update rectangle
+        if self.rect:
+            self.canvas.coords(
+                self.rect,
+                self.start_x, self.start_y,
+                self.current_x, self.current_y
+            )
+    
+    def on_mouse_up(self, event):
+        """Mouse button released - capture the region"""
+        self.current_x = event.x
+        self.current_y = event.y
+        
+        # Calculate the bounding box (handle any direction of drag)
+        x1 = min(self.start_x, self.current_x)
+        y1 = min(self.start_y, self.current_y)
+        x2 = max(self.start_x, self.current_x)
+        y2 = max(self.start_y, self.current_y)
+        
+        # Close the overlay
+        self.root.destroy()
+        
+        # Check if selection is valid (minimum size)
+        if x2 - x1 > 10 and y2 - y1 > 10:
+            # Get the actual screenshot dimensions
+            screenshot_width, screenshot_height = self.screenshot.size
+            screen_width, screen_height = get_screen_size()
+            
+            # Calculate scaling factors if screenshot size differs from screen size
+            scale_x = screenshot_width / screen_width
+            scale_y = screenshot_height / screen_height
+            
+            # Apply scaling to coordinates
+            actual_x1 = int(x1 * scale_x)
+            actual_y1 = int(y1 * scale_y)
+            actual_x2 = int(x2 * scale_x)
+            actual_y2 = int(y2 * scale_y)
+            
+            # Crop the screenshot to the selected region
+            cropped = self.screenshot.crop((actual_x1, actual_y1, actual_x2, actual_y2))
+            self.callback(cropped)
+        else:
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
+            print("[{}] Selection too small, cancelled.".format(current_time))
+    
+    def on_escape(self, event):
+        """ESC pressed - cancel"""
+        self.root.destroy()
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        print("[{}] Snipping cancelled.".format(current_time))
+
+
+def enhance_image(image):
+    # Upscale for better detail
+    image = upscale_and_set_dpi(image, scale_factor=2.0, dpi=300)
+
+    # Convert PIL Image to OpenCV format
+    img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+    # Convert to grayscale - Tesseract works well with grayscale
+    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+
+    # Detect if dark background (code editors often have dark themes)
+    # Use median of edge pixels to detect background color
+    edge_pixels = np.concatenate([
+        gray[0, :], gray[-1, :],  # top and bottom rows
+        gray[:, 0], gray[:, -1]   # left and right columns
+    ])
+    bg_color = int(np.median(edge_pixels))
+    
+    # If dark background (< 128), invert to white background for better OCR
+    if bg_color < 128:
+        gray = cv2.bitwise_not(gray)
+        bg_color = 255  # After inversion, background is white
+
+    # Add padding matching the background color
+    padding = 30
+    gray = cv2.copyMakeBorder(gray, padding, padding, padding, padding, 
+                               cv2.BORDER_CONSTANT, value=bg_color)
+
+    # Convert back to PIL format
+    enhanced_image = Image.fromarray(gray)
+    
+    return enhanced_image
+
+
+def upscale_and_set_dpi(image, scale_factor=2.0, method='bicubic', dpi=300):
+    """Upscales the image using the specified method and sets the DPI"""
+    
+    # Convert PIL Image to OpenCV format
+    img_cv = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    
+    new_width = int(img_cv.shape[1] * scale_factor)
+    new_height = int(img_cv.shape[0] * scale_factor)
+    dim = (new_width, new_height)
+
+    if method == 'bicubic':
+        upscaled_img_cv = cv2.resize(img_cv, dim, interpolation=cv2.INTER_CUBIC)
+    elif method == 'lanczos':
+        upscaled_img_cv = cv2.resize(img_cv, dim, interpolation=cv2.INTER_LANCZOS4)
+    else:
+        raise ValueError("Invalid upscaling method. Choose 'bicubic' or 'lanczos'.")
+
+    # Convert back to PIL format
+    upscaled_image = Image.fromarray(cv2.cvtColor(upscaled_img_cv, cv2.COLOR_BGR2RGB))
+    
+    # Set DPI
+    upscaled_image.info['dpi'] = (dpi, dpi)
+
+    return upscaled_image
+
+
+def save_image(image):
+    """Saves the image to the 'pics' directory and returns the path"""
+    global timestamp
+    timestamp = str(time.time()).replace(".", "")
+    image_path = os.path.join(pics_dir_path, f"{timestamp}_clipboard_image.png")
+    image.save(image_path, "PNG")
+    return image_path
+
+
+def save_text(text):
+    """Saves the OCR output to a file and copies it to the clipboard"""
+    pyperclip.copy(text)
+    with open(os.path.join(pics_dir_path, f"{timestamp}_clipboard_text.txt"), 'w') as f:
+        f.write(text)
+    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+    print("[{}] OCR output has been copied to the clipboard.".format(current_time))
+
+
+def ocr_me(image, image_path):
+    # Use image_to_data to get bounding box info for indentation detection
+    config = "--psm 6 --oem 3"
+    
+    # Get detailed OCR data with bounding boxes
+    data = pytesseract.image_to_data(image, lang='eng', config=config, output_type=pytesseract.Output.DICT)
+    
+    # Group words by line number and reconstruct with indentation
+    lines = {}
+    for i, text in enumerate(data['text']):
+        if text.strip():  # Skip empty entries
+            line_num = data['line_num'][i]
+            block_num = data['block_num'][i]
+            key = (block_num, line_num)
+            
+            if key not in lines:
+                lines[key] = {'x': data['left'][i], 'words': []}
+            lines[key]['words'].append(text)
+    
+    # Sort lines by block and line number
+    sorted_keys = sorted(lines.keys())
+    
+    # Find minimum x position (leftmost text) to calculate relative indentation
+    if lines:
+        min_x = min(line['x'] for line in lines.values())
+    else:
+        min_x = 0
+    
+    # Estimate character width based on image scale (2x upscale * typical char width)
+    # Average monospace font char is ~7-10 pixels, after 2x upscale = ~14-20
+    char_width = 16
+    
+    # Reconstruct text with indentation
+    result_lines = []
+    for key in sorted_keys:
+        line = lines[key]
+        # Calculate indentation based on x offset from minimum
+        indent_pixels = line['x'] - min_x
+        raw_indent = indent_pixels // char_width
+        
+        # Round to nearest 4 spaces (Python PEP 8 standard indentation)
+        indent_spaces = round(raw_indent / 4) * 4
+        
+        # Join words with single space and add indentation
+        line_text = ' '.join(line['words'])
+        result_lines.append(' ' * indent_spaces + line_text)
+    
+    ocr_text = '\n'.join(result_lines)
+    
+    # Clean up non-ASCII characters but preserve whitespace
+    ocr_text = re.sub(r'[^\x00-\x7F]+', '', ocr_text)
+    return ocr_text
+
+
+def process_image(image):
+    """Process the captured image"""
+    try:
+        if image:
+            image = enhance_image(image)
+            image_path = save_image(image)
+            ocr_text = ocr_me(image, image_path)
+            save_text(ocr_text)
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
+            print("[{}] OCR completed! Text copied to clipboard.".format(current_time))
+        else:
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
+            print("[{}] No image to process.".format(current_time))
+    except Exception as e:
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        print("[{}] Error processing image: {}".format(current_time, str(e)))
+
+
+def start_snipping():
+    """Start the snipping tool overlay"""
+    # Run in a new thread to avoid blocking
+    def run_snip():
+        snip = SnippingTool(process_image)
+        snip.start()
+    
+    thread = threading.Thread(target=run_snip)
+    thread.daemon = True
+    thread.start()
+
+
+def on_pause_key():
+    """Callback for when Pause key is pressed"""
+    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+    print("[{}] Pause key pressed - starting snipping tool...".format(current_time))
+    start_snipping()
+
+
+def create_tray_icon():
+    """Create the system tray icon image"""
+    # Create a simple icon (64x64)
+    icon_size = 64
+    icon_image = PILImage.new('RGBA', (icon_size, icon_size), (0, 0, 0, 0))
+    
+    # Draw a simple circle with "T" for OCR/Text
+    draw = ImageDraw.Draw(icon_image)
+    # Blue background circle
+    draw.ellipse([4, 4, icon_size-4, icon_size-4], fill=(30, 144, 255, 255))
+    # Draw "T" for text/OCR
+    draw.text((icon_size//2 - 8, icon_size//2 - 14), "T", fill=(255, 255, 255, 255))
+    
+    return icon_image
+
+
+def reload_script(icon, item):
+    """Reload the script"""
+    global running
+    running = False
+    keyboard.unhook_all()
+    icon.stop()
+    os.execv(sys.executable, ['python'] + sys.argv)
+
+
+def exit_app(icon, item):
+    """Exit the application"""
+    global running
+    running = False
+    keyboard.unhook_all()
+    icon.stop()
+    os._exit(0)
+
+
+def setup_tray():
+    """Setup and run the system tray icon"""
+    global tray_icon
+    
+    menu = pystray.Menu(
+        item('Reload', reload_script),
+        item('Exit', exit_app)
+    )
+    
+    tray_icon = pystray.Icon(
+        "OCR Tool",
+        create_tray_icon(),
+        "OCR Tool (Press Pause to snip)",
+        menu
+    )
+    
+    return tray_icon
+
+
+def main():
+    """Main entry point"""
+    global running
+    
+    print("OCR Tool started!")
+    print("Press 'Pause' key to start snipping")
+    print("Right-click system tray icon for options")
+    
+    # Register the Pause key hotkey
+    keyboard.on_press_key('pause', lambda e: on_pause_key())
+    
+    # Setup and run system tray (this blocks)
+    icon = setup_tray()
+    icon.run()
+
+
+if __name__ == "__main__":
+    main()

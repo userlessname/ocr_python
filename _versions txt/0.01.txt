@@ -1,0 +1,16 @@
+from PIL import ImageGrab
+import os
+
+# Capture image from clipboard
+image = ImageGrab.grabclipboard()
+
+# Check if image exists in clipboard
+if image is None:
+    print('No image found in clipboard.')
+else:
+    # Save image in PNG format to the specified directory
+    path = r'C:\Users\iboyo\OneDrive\Masaüstü'
+    if not os.path.exists(path):
+        os.makedirs(path)
+    image.save(os.path.join(path, 'clipboard_image.png'), 'PNG')
+    print('Image saved to', path)

@@ -1,0 +1,18 @@
+from PIL import ImageGrab
+import os
+
+# Capture image from clipboard
+image = ImageGrab.grabclipboard()
+
+# Check if image exists in clipboard
+if image is None:
+    print('No image found in clipboard.')
+else:
+    # Save image in PNG format to the specified directory with highest quality and resolution
+    path = r'C:\Users\iboyo\OneDrive\Masaüstü'
+    if not os.path.exists(path):
+        os.makedirs(path)
+    dpi = (4096, 4096)  # Set the dpi
+    quality = 100  # Set the quality to 100 for the highest possible quality
+    image.save(os.path.join(path, 'clipboard_image.png'), 'PNG', dpi=dpi, quality=quality)
+    print('Image saved to', path)

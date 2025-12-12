@@ -1,0 +1,3 @@
+pyinstaller main.py --name snip_image_to_text --noconsole
+
+pyinstaller snip_image_to_text.spec

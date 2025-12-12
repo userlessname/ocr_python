@@ -1,0 +1,18 @@
+import pytesseract
+from PIL import Image, ImageEnhance, ImageGrab
+
+# Grab the image from the clipboard
+image = ImageGrab.grabclipboard()
+
+# Check if image is None
+if image is not None:
+    # Enhance the image by sharpening it and increasing its DPI
+    image = ImageEnhance.Sharpness(image).enhance(2.0)
+    image = image.resize((image.width * 2, image.height * 2), resample=Image.BICUBIC)
+
+    # Perform OCR on the image
+    text = pytesseract.image_to_string(image)
+
+    # Write the text back to the clipboard
+    import pyperclip
+    pyperclip.copy(text)

@@ -1,0 +1,17 @@
+import pytesseract
+import pyperclip
+from PIL import ImageGrab
+
+# Capture image from clipboard
+image = ImageGrab.grabclipboard()
+
+# Check if image exists in clipboard
+if image is None:
+    print('No image found in clipboard.')
+else:
+    # Perform OCR on the image
+    text = pytesseract.image_to_string(image)
+
+    # Copy the output text to the clipboard
+    pyperclip.copy(text)
+    print('OCR output copied to clipboard.')
