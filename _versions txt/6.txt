@@ -1,0 +1,28 @@
+from PIL import Image, ImageEnhance, ImageGrab
+import pytesseract
+import pyperclip
+
+# Get the image from the clipboard
+image = ImageGrab.grabclipboard()
+
+# Check if the image exists
+if image is not None:
+    # Increase the image quality
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.5)
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(1.2)
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(1.5)
+
+    # Resize the image to increase the DPI
+    image = image.resize((image.size[0]*2, image.size[1]*2), resample=Image.BICUBIC)
+
+    # Perform OCR on the image
+    text = pytesseract.image_to_string(image, lang='eng', config='--psm 6 --oem 1')
+
+    # Write the output back to the clipboard
+    pyperclip.copy(text)
+    print("OCR output has been copied to the clipboard.")
+else:
+    print("No image found in the clipboard.")

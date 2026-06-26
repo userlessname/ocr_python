@@ -1,0 +1,115 @@
+import datetime
+import os
+import sys
+import textwrap
+import time
+import autopep8
+import cv2
+import pyperclip
+import pyocr.builders
+import textract
+import kraken
+import kraken.lib
+import pandas
+import re
+from PIL import Image, ImageEnhance, ImageGrab
+from pyocr import pyocr
+from pytesseract import pytesseract
+
+timestamp = None
+global pics_dir_path
+pics_dir_path = None
+dir_path = os.path.dirname(os.path.realpath(__file__))
+pics_dir_path = os.path.join(dir_path, "pics")
+# Add pics file if not exist
+if not os.path.exists(pics_dir_path):
+    os.makedirs(pics_dir_path)
+pyperclip.copy(' ') # Set the clipboard contents to an empty string
+empty_clipboard_text = pyperclip.paste()
+# Set the clipboard contents to an empty string
+print("Hello World!")
+
+
+def enhance_image(image):
+    """Enhances the image to improve OCR accuracy"""
+    """
+    Image.NEAREST: Nearest-neighbor resampling. This is the default and simplest resampling algorithm, which simply picks the closest pixel to the sampling point.
+
+    Image.BOX: Box resampling. This method averages all the pixels in a block-shaped region around the sampling point to determine the new pixel value.
+    
+    Image.BILINEAR: Bilinear resampling. This method calculates the new pixel value as a weighted average of the four closest pixels to the sampling point.
+    
+    Image.HAMMING: Hamming-windowed sinc interpolation. This method uses a Hamming window to reduce aliasing artifacts when performing sinc interpolation.
+    
+    Image.BICUBIC: Bicubic resampling. This method calculates the new pixel value as a weighted average of the 16 closest pixels to the sampling point.
+    
+    Image.LANCZOS: Lanczos-windowed sinc interpolation. This method uses a Lanczos window to reduce aliasing artifacts when performing sinc interpolation.
+    
+    """
+    enhancer = ImageEnhance.Color(image)
+    image = enhancer.enhance(-0.8)
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.5)
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(1.2)
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(1.5)  
+    image = image.resize((image.size[0] * 2, image.size[1] * 2), resample=Image.BICUBIC)
+   
+    return image
+
+def save_image(image):
+    """Saves the image to the 'pics' directory and returns the path"""
+    global timestamp
+    timestamp = str(time.time()).replace(".", "")
+    image_path = os.path.join(pics_dir_path, f"{timestamp}_clipboard_image.png")
+    image.save(image_path, "PNG")
+    return image_path
+
+def save_text(text):
+    """Saves the OCR output to a file and copies it to the clipboard"""
+    pyperclip.copy(text)
+    with open(os.path.join(pics_dir_path, f"{timestamp}_clipboard_text.txt"), 'w') as f:
+        f.write(text)
+    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+    print("[{}] OCR output has been copied to the clipboard.".format(current_time))
+
+def ocr_me(image, image_path):
+    # time.sleep(1)
+    ocr_text = pytesseract.image_to_string(image, lang='eng', config="--psm 6 --oem 3 -c tessedit_char_whitelist= *0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*()_+-={}[]|\:;<>,.?/~`")
+    # Clean up the text
+    ocr_text = re.sub(r'[^\x00-\x7F]+', '', ocr_text)
+    # ocr_text = pytesseract.image_to_string(image, lang='eng', config="--psm 6 --oem 3")
+    return ocr_text
+
+while True:
+    # Wait for a new image to be pasted into the clipboard
+    pyperclip.waitForNewPaste()
+    # time.sleep(0.25)
+
+    # Get the image from the clipboard
+    image = ImageGrab.grabclipboard()
+
+    if image:
+        image = enhance_image(image)
+        image_path = save_image(image)
+        ########################################OCR-OCR-CCR#############################################
+        ocr_text = ocr_me(image, image_path)
+        ########################################OCR-OCR-CCR#############################################
+        save_text(ocr_text)
+        # time.sleep(0.01)
+    else:
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        print("[{}] No image found in the clipboard.".format(current_time))
+
+
+
+
+
+
+
+
+
+
+
+

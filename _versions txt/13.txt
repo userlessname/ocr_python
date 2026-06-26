@@ -1,0 +1,82 @@
+import datetime
+import os
+import time
+
+import cv2
+import pyperclip
+import textract
+import re
+from PIL import Image, ImageEnhance, ImageGrab
+from pytesseract import pytesseract
+
+timestamp = None
+global pics_dir_path
+pics_dir_path = None
+dir_path = os.path.dirname(os.path.realpath(__file__))
+pics_dir_path = os.path.join(dir_path, "pics")
+# Add pics file if not exist
+if not os.path.exists(pics_dir_path):
+    os.makedirs(pics_dir_path)
+print("Hello World!")
+
+def enhance_image(image):
+    """Enhances the image to improve OCR accuracy"""
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.5)
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(1.2)
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(1.5)
+    image = image.resize((image.size[0] * 2, image.size[1] * 2), resample=Image.BICUBIC)
+    return image
+
+def save_image(image):
+    """Saves the image to the 'pics' directory and returns the path"""
+    global timestamp
+    timestamp = str(time.time()).replace(".", "")
+    image_path = os.path.join(pics_dir_path, f"{timestamp}_clipboard_image.png")
+    image.save(image_path, "PNG")
+    return image_path
+
+def save_text(text):
+    """Saves the OCR output to a file and copies it to the clipboard"""
+    pyperclip.copy(text)
+    with open(os.path.join(pics_dir_path, f"{timestamp}_clipboard_text.txt"), 'w') as f:
+        f.write(text)
+    current_time = datetime.datetime.now().strftime("%H:%M:%S")
+    print("[{}] OCR output has been copied to the clipboard.".format(current_time))
+
+while True:
+    # Wait for a new image to be pasted into the clipboard
+    pyperclip.waitForNewPaste()
+
+    # Get the image from the clipboard
+    image = ImageGrab.grabclipboard()
+
+    if image:
+        image = enhance_image(image)
+        image_path = save_image(image)
+        ################################################################################################
+        # Perform OCR on the image
+        data = pytesseract.image_to_data(image, lang='eng', config='--psm 6 --oem 1 ', output_type='data.frame')
+
+        # Filter out empty rows
+        data = data[data['conf'] != -1]
+
+        # Add space after each character in each row, except for the last character in the row
+        data['text_with_space'] = data.apply(
+            lambda row: row['text'] + ' ' if row['text'] != '' and row['left'] + row['width'] < image.size[0] else row[
+                'text'], axis=1)
+
+        # Concatenate the text_with_space column for each row into a single string, separated by newline characters
+        ocr_text = '\n'.join(data.groupby('block_num')['text_with_space'].apply(lambda x: ''.join(x))).strip()
+
+        # Clean up the text
+        ocr_text = re.sub(r'[^\x00-\x7F]+', '', ocr_text)
+        ################################################################################################
+
+        save_text(ocr_text)
+        time.sleep(0.01)
+    else:
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        print("[{}] No image found in the clipboard.".format(current_time))

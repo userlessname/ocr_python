@@ -1,0 +1,73 @@
+import os
+import time
+from PIL import Image, ImageEnhance, ImageGrab
+import pytesseract
+import pyperclip
+import re
+import pandas as pd
+print("Hello World!")
+import textract
+filename = None
+pics_dir_path = None
+
+def betterimage(image):
+    # Increase the image quality
+    enhancer = ImageEnhance.Contrast(image)
+    image = enhancer.enhance(1.5)
+    enhancer = ImageEnhance.Brightness(image)
+    image = enhancer.enhance(1.2)
+    enhancer = ImageEnhance.Sharpness(image)
+    image = enhancer.enhance(1.5)
+
+    # Resize the image to increase the DPI
+    image = image.resize((image.size[0] * 2, image.size[1] * 2), resample=Image.BICUBIC)
+    return image
+
+def savingimage():
+    # Get dir, Create a subdirectory named "pics" in the same directory as the Python script
+    dir_path = os.path.dirname(os.path.realpath(__file__))
+    global pics_dir_path
+    pics_dir_path = os.path.join(dir_path, "pics")
+    if not os.path.exists(pics_dir_path):
+        os.makedirs(pics_dir_path)
+
+    # Save the image to the "pics" subdirectory
+    global filename
+    filename = time.time()
+    image_path = os.path.join(pics_dir_path, f"{filename}_clipboard_image.png")
+    if image:
+        image.save(image_path, "PNG")
+    return image_path
+
+def savinfText(ocr_text):
+
+    # Write the output back to the clipboard
+    pyperclip.copy(ocr_text)
+
+    # Create a new file in the same directory as the script to save the OCR text
+    with open(os.path.join(pics_dir_path, f"{filename}_clipboard_text.txt"), 'w') as f:
+        f.write(ocr_text)
+    return
+
+while True:
+    # Wait for a new image to be pasted into the clipboard
+    pyperclip.waitForNewPaste()
+
+    # Get the image from the clipboard
+    image = ImageGrab.grabclipboard()
+
+    # Check if the image exists
+    if image is not None:
+        image = betterimage(image)
+        image_path = savingimage()
+        ###################################################################
+        # Extract the text using Textract
+        text = textract.process(image_path, method='tesseract', encoding='utf-8', layout=True)
+        text = text.decode('utf-8')
+        ###################################################################
+
+        # Ending
+        savinfText(text)
+        print("OCR output has been copied to the clipboard.")
+    else:
+        print("No image found in the clipboard.")
