@@ -1,0 +1,242 @@
+
+# 2026-06-26 01:08:00.522102
++main.py güzelce incele, mükemmel bir şekilde çalıştığına emin ol
+
+# 2026-06-26 01:08:45.098071
++/add main.py
+
+# 2026-06-26 01:08:46.859969
++main.py güzelce incele, mükemmel bir şekilde çalıştığına emin ol
+
+# 2026-06-26 01:09:56.571907
++az önce yaptığın değişiklikleri geri al
+
+# 2026-06-26 01:10:40.063834
++aider --model deepseek/deepseek-v4-flash --cache-prompts --reasoning-effort high --no-check-model-accepts-settings --yes-always --architect --auto-test --test-cmd "python main.py" --map-tokens 8192
+
+# 2026-06-26 01:10:49.781117
++main.py güzelce incele, mükemmel bir şekilde çalıştığına emin ol
+
+# 2026-06-26 01:11:15.228990
++/add main.py
+
+# 2026-06-26 01:11:16.837331
++main.py güzelce incele, mükemmel bir şekilde çalıştığına emin ol
+
+# 2026-06-26 01:13:52.183934
++/run python describe
+
+# 2026-06-26 01:14:22.016796
++What's wrong? Fix/run tree /F
+
+# 2026-06-26 01:14:31.896798
++/run tree /F
+
+# 2026-06-26 01:15:17.323127
++/add main.py
+
+# 2026-06-26 01:15:23.969834
++main.py güzelce incele, mükemmel bir şekilde çalıştığına emin ol
+
+# 2026-06-26 01:17:18.116085
++/add main.py
+
+# 2026-06-26 01:17:23.438430
++main.py güzelce incele, mükemmel bir şekilde çalıştığına emin ol
+
+# 2026-06-26 01:20:37.368033
++/add main.py
+
+# 2026-06-26 01:20:39.152076
++main.py güzelce incele, mükemmel bir şekilde çalıştığına emin ol
+
+# 2026-06-26 01:21:54.961324
++/add main.py
+
+# 2026-06-26 01:23:47.732872
++screenshoot aracı açılıyor, screenshot alınıyor fakat ocr yapılmıyor
+
+# 2026-06-26 01:26:06.398208
++/add main.py
+
+# 2026-06-26 01:26:08.997156
++screenshoot aracı açılıyor, screenshot alınıyor fakat ocr yapılmıyor
+
+# 2026-06-26 01:27:23.198432
++projeyi incele
+
+# 2026-06-26 01:28:20.896346
++D:\Users\Administrator\Desktop\desktop files\backup\myFiles\programs\ocrPython
+
+# 2026-06-26 01:29:20.649431
++D:\Users\Administrator\Desktop\desktop files\backup\myFiles\programs\ocrPython\greeting.py
++Cmd('git') failed due to: exit code(128)
++  cmdline: git add D:\Users\Administrator\Desktop\desktop files\backup\myFiles\programs\ocrPython\greeting.py
++  stderr: 'fatal: detected dubious ownership in repository at 'D:/Users/Administrator/Desktop/desktop
++files/backup/myFiles/programs/ocrPython'
++'D:/Users/Administrator/Desktop/desktop files/backup/myFiles/programs/ocrPython' is owned by:
++        (inconvertible) (S-1-5-21-3055402938-3155430909-3368887012-1001)
++but the current user is:
++        DESKTOP-ODMNR7O/marco (S-1-5-21-2155481988-352502548-2985710743-1000)
++To add an exception for this directory, call:
++
++        git config --global --add safe.directory 'D:/Users/Administrator/Desktop/desktop
++files/backup/myFiles/programs/ocrPython''
+
+# 2026-06-26 01:30:28.442135
++projeyi incele
+
+# 2026-06-26 01:30:57.875493
++C:\Users\marco\Documents\ocrPython
+
+# 2026-06-26 01:31:22.003160
++/add C:\Users\marco\Documents\ocrPython
+
+# 2026-06-26 01:32:05.588358
++/add C:/Users/marco/Documents/ocrPython
+
+# 2026-06-26 01:32:36.285258
++/add C:/Users/marco/Documents/ocrPython/main.py
+
+# 2026-06-26 01:32:41.357075
++projeyi incele
+
+# 2026-06-26 01:33:36.654265
++screenshoot alıyor fakat ocr yapmıyor
+
+# 2026-06-26 01:35:06.280174
++alınan screenshot ocr yapılıp bulunan text otomatik olarak clipboard alınmalı
+
+# 2026-06-26 01:37:34.249098
++screenshot alıyor, fakat onu ocr yapıp clipboard almalı otomatik, ctrl+v bastımmı klavyeden direkt text yapıştırabilmeliyim
+
+# 2026-06-26 01:38:29.930563
++kullanıcıya cmd bilgisi ver her adımda
+
+# 2026-06-26 01:40:30.829089
++screenshot açılmıyor
+
+# 2026-06-26 01:42:10.559903
++/add C:/Users/marco/Documents/ocrPython/main.py
+
+# 2026-06-26 01:42:27.327176
++üç kere pause basıp screenshot tetikliyorum fakat hiçbirşey olmuyor
+
+# 2026-06-26 01:43:41.007996
++screenshot arayüzü açılmıyor
+
+# 2026-06-26 01:44:52.794163
++[DIAG] pytesseract version: 0.3.13
++[DIAG] Tesseract command path: tesseract
++[DIAG] Tesseract version: 5.5.0.20241111
++[DIAG] Turkish language pack (tur) is **NOT** present. OCR will likely fail for Turkish text.
++[DIAG] Patched pytesseract.image_to_string with step logging.
++[DIAG] Patched pyperclip.copy with step logging.
++[DIAG] Patched handle_pause_trigger with step logging.
++Hey there! OCR Tool ready!
++Press 'Pause' key 3 times quickly to start snipping
++Right-click system tray icon for options
++[DEBUG] AppController created: <core.app.AppController object at 0x0000022C606D0690>
++[DEBUG] Public methods of AppController:
++    handle_pause_trigger
++    last_pause_time
++    pause_count
++    region
++    set_region
++[INFO] Starting system tray. Press Pause 3 times quickly to trigger OCR.
++[DEBUG] Pause pressed. Recent presses in window: 1
++[DEBUG] Pause pressed. Recent presses in window: 2
++[DEBUG] Pause pressed. Recent presses in window: 3
++[DEBUG] Triple press detected, calling handle_pause_trigger
++[STEP 0] handle_pause_trigger called
++[STEP 1] Starting screenshot capture ...
++[STEP 5] handle_pause_trigger finished without exception
++[DEBUG] Pause pressed. Recent presses in window: 1
+
+# 2026-06-26 01:45:38.482994
++/add core/app.py
+
+# 2026-06-26 01:45:55.531228
++/add main.py
+
+# 2026-06-26 01:46:36.243312
++/chat-mode ask
+
+# 2026-06-26 01:46:37.508064
++projedeki bütün .py dosyalarını listele
+
+# 2026-06-26 01:48:58.103153
++/add main.py
++
+
+# 2026-06-26 01:49:00.927331
++/add greeting.py
++
+
+# 2026-06-26 01:49:03.359019
++/add screenshot_viewer.py
++
+
+# 2026-06-26 01:49:05.782855
++/add core/app.py
++
+
+# 2026-06-26 01:49:08.167316
++/add core/processor.py
++
+
+# 2026-06-26 01:49:10.600276
++/add tests/test_images.py
++
+
+# 2026-06-26 01:49:13.015173
++/add utils/helpers.py
++
+
+# 2026-06-26 01:49:15.615263
++/add ui/overlay.py
++
+
+# 2026-06-26 01:49:18.271306
++/add ui/tray.py
+
+# 2026-06-26 01:49:28.783223
++projeyi incele hataları eksikleri gider
+
+# 2026-06-26 01:49:56.471849
++/add main.py
++
+
+# 2026-06-26 01:49:59.376253
++/add greeting.py
++
+
+# 2026-06-26 01:50:02.240381
++/add screenshot_viewer.py
++
+
+# 2026-06-26 01:50:04.767088
++/add core/app.py
++
+
+# 2026-06-26 01:50:07.127965
++/add core/processor.py
++
+
+# 2026-06-26 01:50:10.096908
++/add tests/test_images.py
++
+
+# 2026-06-26 01:50:12.303826
++/add utils/helpers.py
++
+
+# 2026-06-26 01:50:14.744358
++/add ui/overlay.py
++
+
+# 2026-06-26 01:50:17.200648
++/add ui/tray.py
+
+# 2026-06-26 01:50:25.912795
++projeyi incele hataları eksikleri gider

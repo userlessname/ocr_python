@@ -1,1 +1,28 @@
-.aider*
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE
+.vscode/
+.idea/
+
+# OCR output screenshots (regenerated each run)
+pics/*.png
+pics/*.txt
+
+# Test outputs (regenerated each test run)
+tests/*_actual.txt
+
+# Temporary test files
+_test_*.py
+
+# OS
+Thumbs.db
+.DS_Store
