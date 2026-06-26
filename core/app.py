@@ -1,11 +1,10 @@
 """
-Core module: handles the pause trigger action.
+Core module: provides ImageProcessor singleton (backward compat / tests).
+SnippingQueue ve HotkeyManager yönetimi core/snipping.py'ye taşındı.
 """
 
 import os
 import atexit
-from core.processor import ImageProcessor
-from core.hotkey import HotkeyManager
 from core.inference import shutdown as shutdown_surya
 
 # Determine pics directory relative to this file's location (or absolute)
@@ -21,13 +20,6 @@ atexit.register(shutdown_surya)
 def get_processor():
     global _processor
     if _processor is None:
+        from core.processor import ImageProcessor
         _processor = ImageProcessor(PICS_DIR)
     return _processor
-
-def on_snipped_callback(image):
-    processor = get_processor()
-    processor.process_image(image)
-
-def start_hotkey_listener():
-    manager = HotkeyManager(on_snipped_callback)
-    manager.start()

@@ -1,11 +1,10 @@
 """
 On-screen OCR indicator: shows "OCR" text at top-right while processing.
-Uses tkinter for a small always-on-top overlay window.
+Uses a Toplevel on the persistent Tk root (no background thread needed).
 Click-through enabled so it doesn't interfere with user interaction.
 """
 
 import tkinter as tk
-import threading
 import ctypes
 from utils.helpers import get_screen_size
 
@@ -20,32 +19,38 @@ MARGIN_RIGHT = 20
 MARGIN_TOP = 15
 
 _root = None
-_root_lock = threading.Lock()
+_parent_root = None
+
+
+def set_root(root):
+    """Set the persistent Tk root for this indicator.
+    Must be called once at startup from the main thread."""
+    global _parent_root
+    _parent_root = root
 
 
 def _create_and_show():
-    """Create the tkinter window and position it at top-right."""
+    """Create the OCR indicator Toplevel and position it at top-right."""
     global _root
 
     screen_width, screen_height = get_screen_size()
 
-    # Create a temporary label to measure text size
-    dummy = tk.Tk()
-    dummy.withdraw()
-    dummy.update_idletasks()
-    label = tk.Label(dummy, text=TEXT, font=("Segoe UI", FONT_SIZE, "bold"))
+    # Measure text size using a temporary Toplevel (no new Tk needed)
+    temp = tk.Toplevel(_parent_root)
+    temp.withdraw()
+    label = tk.Label(temp, text=TEXT, font=("Segoe UI", FONT_SIZE, "bold"))
     label.update_idletasks()
     text_width = label.winfo_reqwidth()
     text_height = label.winfo_reqheight()
-    dummy.destroy()
+    temp.destroy()
 
     win_width = text_width + PAD_X * 2
     win_height = text_height + PAD_Y * 2
     x = screen_width - win_width - MARGIN_RIGHT
     y = MARGIN_TOP
 
-    # Create the overlay window
-    _root = tk.Tk()
+    # Create the overlay Toplevel (safe to create/destroy repeatedly)
+    _root = tk.Toplevel(_parent_root)
     _root.withdraw()
     _root.overrideredirect(True)  # No title bar
     _root.geometry(f"{win_width}x{win_height}+{x}+{y}")
@@ -82,29 +87,27 @@ def _create_and_show():
         pass
 
     _root.deiconify()
-    _root.mainloop()
+    # No mainloop() needed — the persistent root's mainloop is already running
 
 
 def show():
-    """Show the OCR indicator overlay (non-blocking)."""
+    """Show the OCR indicator overlay on the main thread."""
     global _root
-    with _root_lock:
-        if _root is not None:
-            return  # Already showing
-
-    thread = threading.Thread(target=_create_and_show, daemon=True)
-    thread.start()
+    if _root is not None:
+        return  # Already showing
+    _create_and_show()
+    # Force the window to appear immediately (safe: processes only idle tasks, not events)
+    if _parent_root:
+        _parent_root.update_idletasks()
 
 
 def hide():
     """Hide the OCR indicator overlay."""
     global _root
-    with _root_lock:
-        if _root is None:
-            return
-        try:
-            _root.quit()
-            _root.destroy()
-        except Exception:
-            pass
-        _root = None
+    if _root is None:
+        return
+    try:
+        _root.destroy()
+    except Exception:
+        pass
+    _root = None

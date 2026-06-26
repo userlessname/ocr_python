@@ -31,12 +31,8 @@
 git clone https://github.com/userlessname/ocr_python.git
 cd ocr_python
 
-# Create and activate virtual environment
-python -m venv .venv
-.venv\Scripts\activate
-
-# Install dependencies (includes Surya OCR + Marker converter)
-pip install "marker-pdf[full]"
+# Install dependencies
+pip install -r requirements.txt
 ```
 
 ### Usage

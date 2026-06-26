@@ -1,17 +1,29 @@
 import ctypes
 from ctypes import wintypes
 from PIL import Image as PILImage, ImageDraw
-from screeninfo import get_monitors
 sound_enabled = True
 
 def set_sound_enabled(enabled: bool):
     global sound_enabled
     sound_enabled = enabled
 
+def _set_dpi_awareness():
+    """Set process DPI awareness (Per-Monitor v2). Must be called before any GUI init."""
+    try:
+        # Modern: Per-Monitor DPI Aware v2
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            # Fallback: System DPI Aware
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
+
 def get_screen_size():
     """Get actual screen size accounting for DPI scaling"""
+    _set_dpi_awareness()
     user32 = ctypes.windll.user32
-    user32.SetProcessDPIAware()
     width = user32.GetSystemMetrics(0)
     height = user32.GetSystemMetrics(1)
     return width, height
@@ -27,6 +39,7 @@ def get_monitor_at_cursor():
     Returns the monitor info dict for the screen where the mouse cursor is located.
     """
     mouse_x, mouse_y = get_mouse_position()
+    from screeninfo import get_monitors
     monitors = get_monitors()
     
     for monitor in monitors:
