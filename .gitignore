@@ -27,3 +27,5 @@ _test_*.py
 Thumbs.db
 .DS_Store
 backups/
+.agent/rules/
+antigravity_auto_accept/
