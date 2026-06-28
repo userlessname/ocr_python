@@ -1,114 +1,85 @@
+"""
+SnipOCR – Entry point.
+Bootstraps the application: creates the Tk root, wires everything, and runs.
+"""
+from __future__ import annotations
+
+import logging
 import os
-import glob
-import warnings
-import threading
-import signal
 import sys
-import ctypes
-import tkinter as tk
+import warnings
 
-# Set DPI awareness before any GUI operations
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except Exception:
-    try:
-        ctypes.windll.user32.SetProcessDPIAware()
-    except Exception:
-        pass
-
-# Suppress noisy warnings from dependencies — must be set before importing TF
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 warnings.filterwarnings("ignore", message=".*np\\.object.*")
 
-from core.snipping import SnippingManager
-from core.inference import load_models, shutdown as shutdown_surya
-from ui import tray
-from ui.ocr_indicator import set_root as set_indicator_root
-from utils.helpers import set_sound_enabled
+import threading
 
-set_sound_enabled(False)
+import tkinter as tk
 
-# Ensure pics folder exists
-pics_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pics")
-os.makedirs(pics_dir, exist_ok=True)
+from src.app import SnipOCRApp
+from src.config import get_pics_dir
 
-# Clear old screenshots on startup
-for f in glob.glob(os.path.join(pics_dir, "*")):
+
+def _setup_logging() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+def _forceful_exit() -> None:
+    """Last-resort process kill if graceful shutdown hangs."""
+    import subprocess
     try:
-        os.remove(f)
+        subprocess.run(
+            ["taskkill", "/F", "/PID", str(os.getpid())],
+            capture_output=True,
+            timeout=3,
+        )
     except Exception:
         pass
+    os._exit(1)
 
 
-if __name__ == "__main__":
-    # ── Graceful shutdown handler ──────────────────────────────────
-    _shutdown_requested = False
+def main() -> None:
+    _setup_logging()
 
-    def _shutdown(signum=None, frame=None):
-        """Handle external signals (Ctrl+C, SIGTERM) or unexpected KeyboardInterrupt."""
-        global _shutdown_requested
-        if _shutdown_requested:
-            return  # avoid double-shutdown
-        _shutdown_requested = True
-        print("\n[SnipOCR] Shutting down gracefully...")
+    pics_dir = get_pics_dir()
+    os.makedirs(pics_dir, exist_ok=True)
+
+    # ── Clean stale files from previous sessions ────────────────────────────
+    for filename in os.listdir(pics_dir):
+        filepath = os.path.join(pics_dir, filename)
         try:
-            shutdown_surya()
-        except Exception:
-            pass
-        try:
-            snipping_mgr._hotkey_manager.stop()
-        except Exception:
-            pass
-        try:
-            root.quit()
+            if os.path.isfile(filepath) or os.path.islink(filepath):
+                os.unlink(filepath)
         except Exception:
             pass
 
-    # Register signal handlers for clean shutdown
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
-
-    # Create a persistent Tk root that stays alive for the entire app lifetime.
-    # All Tkinter windows (snipping overlay, OCR indicator) use Toplevel on this root.
     root = tk.Tk()
     root.withdraw()
 
-    # Share the persistent root with the OCR indicator module
-    set_indicator_root(root)
+    app = SnipOCRApp(root=root, pics_dir=pics_dir)
+    app.start()
 
-    # Start loading Surya models in background (will be ready by first OCR)
-    threading.Thread(target=load_models, daemon=True).start()
-
-    # ── SnippingManager: tek elden snipping + OCR pipeline yönetimi ──
-    # on_ocr_result callback artık sadece opsiyonel log/notification içindir.
-    # State yönetimi (tray idle, indicator hide) SnippingManager içinde yapılır.
-    def on_ocr_result(text, error):
-        """OCR bittiğinde main thread'de çağrılır (opsiyonel ek işlemler)."""
-        if error:
-            ctypes.windll.user32.MessageBeep(0x00000010)
-        # else: play_sound_done() — artık SnippingManager._on_ocr_completed içinde
-
-    snipping_mgr = SnippingManager(
-        root=root,
-        pics_dir=pics_dir,
-        on_ocr_result=on_ocr_result,
-    )
-    snipping_mgr.start()
-
-    # Run tray icon in a background thread (pystray uses its own event loop)
-    tray_thread = threading.Thread(
-        target=tray.main,
-        args=(snipping_mgr.request_snipping,),
-        daemon=True
-    )
-    tray_thread.start()
-
-    # Enter the Tk event loop (runs forever)
     try:
         root.mainloop()
     except KeyboardInterrupt:
-        _shutdown()
+        app.shutdown()
+    except SystemExit:
+        pass
     finally:
-        _shutdown()
-        print("[SnipOCR] Exited.")
+        logging.shutdown()
+        app.shutdown()
+        # ── Watchdog: if shutdown takes >5s, force-kill ────────────
+        watchdog = threading.Thread(target=lambda: (
+            threading.Event().wait(5) or _forceful_exit()
+        ), daemon=True)
+        watchdog.start()
         sys.exit(0)
+        os._exit(0)
+
+
+if __name__ == "__main__":
+    main()

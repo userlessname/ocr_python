@@ -1,5 +1,5 @@
-surya-ocr==0.17.1
-transformers>=4.56.1,<4.57
+paddlepaddle==2.6.2
+paddleocr==2.9.1
 pynput==1.8.2
 pystray==0.19.5
 pyperclip==1.11.0
