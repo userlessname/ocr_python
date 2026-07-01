@@ -1,9 +1,18 @@
+# ── OCR stack (used by server.py) ──────────────────────────────────────────
 paddlepaddle==2.6.2
 paddleocr==2.9.1
+
+# ── OCR HTTP server (FastAPI) ───────────────────────────────────────────────
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+requests>=2.31
+
+# ── Desktop client (SnipOCR UI) ─────────────────────────────────────────────
 pynput==1.8.2
 pystray==0.19.5
 pyperclip==1.11.0
 screeninfo==0.8.1
 pillow==10.4.0
-numpy==2.2.6
-opencv-python==4.12.0.88
+# PaddleOCR 2.9.1 requires numpy<2.0; loose pin keeps the resolver happy.
+numpy>=1.24,<2.0

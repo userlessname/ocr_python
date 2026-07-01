@@ -44,16 +44,6 @@ class ImageProcessor:
         _logger.info(f"OCR result ({len(text)} chars) saved.")
         return text_path
 
-    def cleanup_pics_dir(self) -> None:
-        """Remove all files in the pics directory."""
-        for f in os.listdir(self.pics_dir):
-            path = os.path.join(self.pics_dir, f)
-            try:
-                if os.path.isfile(path):
-                    os.remove(path)
-            except Exception:
-                pass
-
     @staticmethod
     def _copy_to_clipboard(text: str) -> None:
         """Copy text to clipboard with retry logic."""

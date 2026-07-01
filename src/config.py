@@ -5,6 +5,7 @@ All magic numbers, timeouts, colors, and paths live here.
 from __future__ import annotations
 
 import os
+import socket
 
 # ── Selection overlay ─────────────────────────────────────────────────────────
 SELECTION_MIN_SIZE = 10
@@ -35,37 +36,28 @@ TRAY_TOOLTIP_BUSY = "\u23f3 OCR processing..."  # hourglass emoji
 HOTKEY_DEBOUNCE_INTERVAL = 2.0
 HOTKEY_SESSION_RECOVERY = 1.5
 
-# ── OCR engine ────────────────────────────────────────────────────────────────
-PADDLE_LANGUAGES = ["en"]
-PADDLE_USE_GPU = False
-PADDLE_DET_DB_THRESH = 0.2       # Lower threshold to catch more text boxes
-PADDLE_DET_BOX_THRESH = 0.1      # Include low-confidence detections too
-PADDLE_REC_BATCH_SIZE = 6
-PADDLE_PREPROCESS_ENABLE = True   # Our preprocessor (CLAHE + binarize) improves small-text detection for code screenshots
-PADDLE_USE_DILATION = True        # Morphological dilation for small/narrow characters
-
-# ── Image Preprocessing (only safe, fast, quality-boosting ops) ──────────────
-PREPROCESS_ENABLE = True              # Master switch: ON
-PREPROCESS_CLAHE_CLIP_LIMIT = 1.5    # Mild contrast boost — safe & fast (~2ms)
-PREPROCESS_CLAHE_GRID_SIZE = 8
-PREPROCESS_BILATERAL_D = 0           # DISABLED — can blur small text
-PREPROCESS_BILATERAL_SIGMA_COLOR = 75
-PREPROCESS_BILATERAL_SIGMA_SPACE = 75
-PREPROCESS_SHARPEN_STRENGTH = 0.3    # Gentle unsharp masking — safe, improves edge definition
-PREPROCESS_DESKEW_ENABLE = False     # DISABLED — can distort text
-PREPROCESS_BINARIZE_ENABLE = True    # Adaptive binarization — best for mixed screenshots
-PREPROCESS_BINARIZE_METHOD = "adaptive_gaussian"
-PREPROCESS_UPSCALE_FACTOR = 1.5      # Gentle upscale for tiny images
-PREPROCESS_UPSCALE_MIN_DIM = (100, 30) # Only upsacle truly tiny scans
-
-# ── Text Post-Processing — SAFE improvements ──────────────────────────────────
-POSTPROCESS_ENABLE = True
-POSTPROCESS_FIX_COMMON_ERRORS = True   # 0↔O, 1↔l, pipe fixes
-POSTPROCESS_COLLAPSE_WHITESPACE = True # Clean up extra spaces
-POSTPROCESS_FIX_PUNCTUATION = True     # Period/comma spacing fixes
+# ── OCR FastAPI server (consumed by main.py + src/engine/remote_engine.py) ────
+OCR_SERVER_HOST = "127.0.0.1"          # Loopback only for the bundled server
+OCR_SERVER_PORT = 8000                 # Matches the canonical port from the guide
+OCR_SERVER_HEALTH_PATH = "/health"     # Liveness probe used by RemoteOCREngine.load()
+OCR_SERVER_STARTUP_TIMEOUT = 120.0     # Generous: covers first-run model download
+OCR_SERVER_REQUEST_TIMEOUT = 30.0      # Per-request timeout for /ocr/process
+OCR_SERVER_AUTO_START = True           # If True, main.py spawns the server in a thread
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 def get_pics_dir() -> str:
     """Return the pics directory path (relative to project root)."""
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, "pics")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def is_port_free(host: str, port: int) -> bool:
+    """Return True if the TCP port is currently free (safe to bind)."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.25)
+        try:
+            sock.connect((host, port))
+        except (ConnectionRefusedError, OSError, socket.timeout):
+            return True
+        return False

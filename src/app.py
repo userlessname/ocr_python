@@ -20,7 +20,7 @@ from src.core.state import StateMachine, AppState
 from src.core.hotkey import HotkeyListener
 from src.core.processor import ImageProcessor
 from src.engine.base import BaseOCREngine
-from src.engine.paddleocr_engine import PaddleOCREngine
+from src.engine.remote_engine import RemoteOCREngine
 from src.overlay.snipping import SnippingOverlay
 from src.ui.tray import TrayController
 from src.ui.indicator import OCRIndicator
@@ -47,8 +47,8 @@ class SnipOCRApp:
         self._state_machine = StateMachine(on_transition=self._on_state_transition)
         self._processor = ImageProcessor(self._pics_dir)
 
-        # ── OCR engine (lazy – loaded on first use) ──────────────────────────
-        self._ocr_engine: BaseOCREngine = PaddleOCREngine()
+        # ── OCR engine (HTTP client for the FastAPI server) ──────────────────
+        self._ocr_engine: BaseOCREngine = RemoteOCREngine()
         self._ocr_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ocr")
 
         # ── UI components ─────────────────────────────────────────────────────
