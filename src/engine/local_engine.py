@@ -1,19 +1,13 @@
 """
-Local Surya OCR Engine — optimized for AMD Ryzen 5 9600X (6-core) + RX 6650 XT.
+Local Surya OCR Engine — CPU-optimized for AMD Ryzen 5 9600X (6 physical cores).
 
 Runs Surya OCR directly in-process.  Handles English, Turkish, and code
-blocks with high accuracy.  Surya's multilingual recognition model is
-significantly better than PaddleOCR at Turkish diacritics.
+blocks with high accuracy.
 
-Optimizations (2026-07-01):
-  * 90% CPU utilization — threads = max(1, floor(cores * 0.9))
-  * FOUNDATION_MODEL_QUANTIZE=True — int8 quantization for CPU speed
-  * FOUNDATION_MAX_TOKENS=512 — limit recognition output length
-  * torch.inference_mode() — disable autograd overhead
-  * attention_implementation="sdpa" — faster scaled dot-product attention
-  * DETECTOR_BATCH_SIZE=1, RECOGNITION_BATCH_SIZE=32 — tuned for single-image
-  * DETECTOR_IMAGE_CHUNK_HEIGHT=1400 — balanced memory/speed
-  * Adaptive preprocessing: skip upscale for >=250px height
+Key optimizations:
+  * Physical-core threading (6 threads, avoids SMT cache thrashing)
+  * torch.inference_mode() — zero autograd overhead
+  * Adaptive preprocessing — smart upscale/downscale + sharpen
   * Indentation reconstructed from TextLine polygon x-coordinates
 """
 from __future__ import annotations
@@ -32,8 +26,7 @@ from src.engine.base import BaseOCREngine
 
 _logger = logging.getLogger(__name__)
 
-# ── Torch / GPU Tuning ──────────────────────────────────────────────────────
-# Physical cores for CPU fallback (Ryzen 5 9600X: 6)
+# ── CPU Thread Tuning ───────────────────────────────────────────────────────
 _PHYSICAL_CORES = max(1, (os.cpu_count() or 4) // 2)
 os.environ.setdefault("OMP_NUM_THREADS", str(_PHYSICAL_CORES))
 os.environ.setdefault("MKL_NUM_THREADS", str(_PHYSICAL_CORES))
@@ -42,26 +35,14 @@ os.environ.setdefault("KMP_BLOCKTIME", "0")
 os.environ.setdefault("KMP_AFFINITY", "granularity=fine,compact,1,0")
 
 
-def _get_torch_device() -> str:
-    """Detect best available torch device.
-
-    DirectML (AMD GPU) is DISABLED — torch-directml 0.2.5 cannot run
-    Surya's transformer model correctly (float→bool corruption, uint8
-    overflow, version_counter, device mismatch, masked_fill scatter bugs).
-    CPU-only for now.  See git history for DirectML attempts.
-    """
-    return "cpu"
-
-
 def _configure_torch() -> None:
-    """Configure torch for CPU or GPU + apply compatibility patches."""
+    """Apply torch compatibility patches + CPU thread tuning."""
     try:
         import torch
         import torch.nn.utils.rnn as rnn_utils
 
-        # ── Patch pad_sequence for torch<2.7 + surya compatibility ───
-        # surya-ocr requires padding_side param (torch>=2.7 API).
-        # torch-directml ships torch 2.4.1 which lacks it.
+        # Patch pad_sequence for torch<2.7 + surya compatibility
+        # (surya-ocr requires padding_side param from torch>=2.7 API)
         _orig_pad = rnn_utils.pad_sequence
         def _patched_pad(sequences, batch_first=False, padding_value=0.0,
                          padding_side='right', **kw):
@@ -73,92 +54,6 @@ def _configure_torch() -> None:
                            padding_value=padding_value)
         rnn_utils.pad_sequence = _patched_pad
 
-        # ── Patch CUDA bf16 check for non-CUDA GPU devices ───────────
-        # Surya calls torch.cuda.is_bf16_supported() even on DirectML.
-        _orig_bf16 = torch.cuda.is_bf16_supported
-        def _patched_bf16(*args, **kw):
-            try:
-                return _orig_bf16(*args, **kw)
-            except (AssertionError, RuntimeError):
-                return False
-        torch.cuda.is_bf16_supported = _patched_bf16
-
-        # ── Patch masked_fill for DirectML ───────────────────────────
-        # DirectML masked_fill internally casts to uint8 and overflows
-        # on large float values.  Catch and retry on CPU.
-        _orig_masked_fill = torch.Tensor.masked_fill
-        def _dml_masked_fill(self, mask, value):
-            try:
-                return _orig_masked_fill(self, mask, value)
-            except RuntimeError as e:
-                if "uint8" in str(e) and self.device.type == "privateuseone":
-                    return _orig_masked_fill(
-                        self.to("cpu"), mask.to("cpu"), value
-                    ).to(self.device)
-                raise
-        torch.Tensor.masked_fill = _dml_masked_fill
-
-        _orig_masked_fill_ = torch.Tensor.masked_fill_
-        def _dml_masked_fill_(self, mask, value):
-            try:
-                return _orig_masked_fill_(self, mask, value)
-            except RuntimeError as e:
-                if "uint8" in str(e) and self.device.type == "privateuseone":
-                    cpu_result = _orig_masked_fill_(
-                        self.to("cpu"), mask.to("cpu"), value
-                    )
-                    self.copy_(cpu_result.to(self.device))
-                    return self
-                raise
-        torch.Tensor.masked_fill_ = _dml_masked_fill_
-
-        # ── Patch scatter for DirectML dtype mismatch ────────────────
-        # DirectML is strict about dtype matching; torch CPU is lenient.
-        # Fix: auto-cast src to self's dtype before scatter.
-        _orig_scatter = torch.Tensor.scatter
-        def _dml_scatter(self, dim, index, src, *args, **kwargs):
-            if src.dtype != self.dtype:
-                src = src.to(self.dtype)
-            try:
-                return _orig_scatter(self, dim, index, src, *args, **kwargs)
-            except RuntimeError as e:
-                if self.device.type == "privateuseone":
-                    return _orig_scatter(
-                        self.to("cpu"), dim, index.to("cpu"),
-                        src.to("cpu"), *args, **kwargs
-                    ).to(self.device)
-                raise
-        torch.Tensor.scatter = _dml_scatter
-
-        _orig_scatter_ = torch.Tensor.scatter_
-        def _dml_scatter_(self, dim, index, src, *args, **kwargs):
-            # DirectML sometimes produces bool tensors where float expected.
-            # Don't cast bool→float (True→1.0 corrupts KV cache). 
-            if src.dtype == torch.bool and self.dtype != torch.bool:
-                # Try on CPU directly — DML corrupted the tensor
-                cpu_self = self.to("cpu")
-                cpu_result = _orig_scatter_(
-                    cpu_self, dim, index.to("cpu"),
-                    src.to(torch.float32).to("cpu"), *args, **kwargs
-                )
-                self.copy_(cpu_result.to(self.device))
-                return self
-            if src.dtype != self.dtype:
-                src = src.to(self.dtype)
-            try:
-                return _orig_scatter_(self, dim, index, src, *args, **kwargs)
-            except RuntimeError as e:
-                if self.device.type == "privateuseone":
-                    cpu_self = self.to("cpu")
-                    cpu_result = _orig_scatter_(
-                        cpu_self, dim, index.to("cpu"),
-                        src.to("cpu"), *args, **kwargs
-                    )
-                    self.copy_(cpu_result.to(self.device))
-                    return self
-                raise
-        torch.Tensor.scatter_ = _dml_scatter_
-
         # CPU thread tuning
         torch.set_num_threads(_PHYSICAL_CORES)
         if hasattr(torch, "set_num_interop_threads"):
@@ -169,24 +64,6 @@ def _configure_torch() -> None:
             torch.backends.mkldnn.enabled = True
     except Exception:
         pass
-
-
-def _boost_process_priority() -> int:
-    """Process priority manager. Returns old priority for restore.
-
-    We stay at NORMAL — the thread count already drives CPU to 90%.
-    """
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        return kernel32.GetPriorityClass(kernel32.GetCurrentProcess())
-    except Exception:
-        return -1
-
-
-def _restore_process_priority(old: int) -> None:
-    """Restore process priority (no-op — we don't change it)."""
-    pass
 
 
 # ── Adaptive Image Pre-processing ───────────────────────────────────────────
@@ -295,36 +172,6 @@ def _reconstruct_indentation(text_lines) -> str:
     return "\n".join(result_lines)
 
 
-# ── DirectML GPU patch: vision encoder → CPU ─────────────────────────────────
-
-def _patch_vision_encoder_cpu(foundation_predictor) -> None:
-    """Patch: entire prediction_loop on CPU, model back to GPU after."""
-    import torch
-    model = foundation_predictor.model
-    device = next(model.parameters()).device
-    if device.type != "privateuseone":
-        return
-
-    _orig_loop = foundation_predictor.prediction_loop
-
-    def _cpu_loop(*args, **kwargs):
-        model.to("cpu")
-        for name in ("device_pad_token", "device_beacon_token", "special_token_ids"):
-            t = getattr(foundation_predictor, name, None)
-            if isinstance(t, torch.Tensor):
-                setattr(foundation_predictor, name, t.to("cpu"))
-        try:
-            return _orig_loop(*args, **kwargs)
-        finally:
-            model.to(device)
-            for name in ("device_pad_token", "device_beacon_token", "special_token_ids"):
-                t = getattr(foundation_predictor, name, None)
-                if isinstance(t, torch.Tensor):
-                    setattr(foundation_predictor, name, t.to(device))
-
-    foundation_predictor.prediction_loop = _cpu_loop
-    _logger.info("  Recognition → CPU (DirectML safety), detection → GPU skipped.")
-
 class LocalOCREngine(BaseOCREngine):
     """In-process Surya OCR engine — CPU-optimized for Ryzen 5 9600X."""
 
@@ -402,54 +249,50 @@ class LocalOCREngine(BaseOCREngine):
         # ── 1) Detection ───────────────────────────────────────────────
         det_t = 0.0
         rec_t = 0.0
-        old_priority = _boost_process_priority()
-        try:
-            t0 = time.time()
-            with torch.inference_mode():
-                det_results = self._detection([proc_image])
-            det_t = time.time() - t0
-            _logger.info("  Detection: %.1fs", det_t)
+        t0 = time.time()
+        with torch.inference_mode():
+            det_results = self._detection([proc_image])
+        det_t = time.time() - t0
+        _logger.info("  Detection: %.1fs", det_t)
 
-            # ── 2) Recognition ─────────────────────────────────────────
-            t0 = time.time()
-            det_bboxes = [[b.bbox for b in det.bboxes] for det in det_results]
-            total_lines = sum(len(b) for b in det_bboxes)
-            _logger.info("  Recognition: %d lines to process...", total_lines)
+        # ── 2) Recognition ─────────────────────────────────────────
+        t0 = time.time()
+        det_bboxes = [[b.bbox for b in det.bboxes] for det in det_results]
+        total_lines = sum(len(b) for b in det_bboxes)
+        _logger.info("  Recognition: %d lines to process...", total_lines)
 
-            # Enable Surya DEBUG logging with explicit handler
-            surya_handler = logging.StreamHandler()
-            surya_handler.setLevel(logging.DEBUG)
-            surya_handler.setFormatter(logging.Formatter(
-                "  [SURYA] %(name)s | %(message)s"
-            ))
-            surya_loggers: list[logging.Logger] = []
-            for name in ("surya", "surya.recognition", "surya.foundation",
-                         "surya.common", "surya.detection", "surya.input",
-                         "surya.model", "surya.postprocessing"):
-                lg = logging.getLogger(name)
-                lg.setLevel(logging.DEBUG)
-                lg.addHandler(surya_handler)
-                lg.propagate = False  # Don't double-log via root
-                surya_loggers.append(lg)
+        # Enable Surya DEBUG logging with explicit handler
+        surya_handler = logging.StreamHandler()
+        surya_handler.setLevel(logging.DEBUG)
+        surya_handler.setFormatter(logging.Formatter(
+            "  [SURYA] %(name)s | %(message)s"
+        ))
+        surya_loggers: list[logging.Logger] = []
+        for name in ("surya", "surya.recognition", "surya.foundation",
+                     "surya.common", "surya.detection", "surya.input",
+                     "surya.model", "surya.postprocessing"):
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.DEBUG)
+            lg.addHandler(surya_handler)
+            lg.propagate = False  # Don't double-log via root
+            surya_loggers.append(lg)
 
-            with torch.inference_mode():
-                predictions = self._recognition(
-                    [proc_image],
-                    bboxes=det_bboxes,
-                    sort_lines=True,
-                )
+        with torch.inference_mode():
+            predictions = self._recognition(
+                [proc_image],
+                bboxes=det_bboxes,
+                sort_lines=True,
+            )
 
-            # Clean up: remove handler, restore levels
-            for lg in surya_loggers:
-                lg.removeHandler(surya_handler)
-                lg.setLevel(logging.WARNING)
-                lg.propagate = True
+        # Clean up: remove handler, restore levels
+        for lg in surya_loggers:
+            lg.removeHandler(surya_handler)
+            lg.setLevel(logging.WARNING)
+            lg.propagate = True
 
-            rec_t = time.time() - t0
-            _logger.info("  Recognition done: %.1fs (%.1fs/line)",
-                         rec_t, rec_t / max(total_lines, 1))
-        finally:
-            _restore_process_priority(old_priority)
+        rec_t = time.time() - t0
+        _logger.info("  Recognition done: %.1fs (%.1fs/line)",
+                     rec_t, rec_t / max(total_lines, 1))
 
         if not predictions:
             _logger.info("  No text detected.")
