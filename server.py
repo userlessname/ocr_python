@@ -339,35 +339,70 @@ def _apply_universal_fixes(text: str) -> str:
 def _apply_turkish_fixes(text: str) -> str:
     """Apply Turkish-context character fixes.
 
-    These fixes are safe for ANY Latin-script prose because the
-    patterns they target (II→İ, l→İ, $→ş, -mis→-miş) do not
-    occur in natural English.
+    These fixes leverage Turkish orthographic rules:
+      - Universal: $-→ş, -miş suffix, intervocalic g→ğ, final -g→-ğ
+      - Turkish-only (has indicators): c→ç, s→ş, inside-word fixes
+      - II→İ, l→İ at word start (PaddleOCR artifacts)
+      - su an→şu an (common phrase)
     """
+    has_tr = _has_turkish_indicators(text)
     text = text.translate(_TR_CONTEXT_FIXES_TABLE)
     text = _fix_ii_sentence_start(text)
     text = _fix_l_as_dotted_i(text)
     text = _fix_su_an(text)
-    text = _fix_turkish_suffixes(text)
+    text = _fix_turkish_suffixes(text, has_tr_indicators=has_tr)
     return text
 
 
-def _fix_turkish_suffixes(text: str) -> str:
-    """Fix PaddleOCR dropping diacritics on common Turkish suffixes.
+def _fix_turkish_suffixes(text: str, has_tr_indicators: bool = False) -> str:
+    """Fix PaddleOCR dropping diacritics — only rules with zero English false positives.
 
-    These patterns are extremely high-confidence because:
-      - English does not have words ending in '-mis', '-mus', '-mıs'
-        as suffixes (they would be loanwords)
-      - The Turkish reported past tense suffix is always -miş/-mış/-muş/-müş
-      - OCR frequently outputs ASCII 's' instead of 'ş' for this suffix
+    SAFE rules (apply always):
+      1. -mis→-miş, -mıs→-mış, -mus→-muş, -müs→-müş (reported past suffix)
+         No English word ends in these patterns as a morphological suffix.
+
+    TURKISH-ONLY rules (has_tr_indicators=True):
+      2. Word-initial 'c' → 'ç' — Turkish has almost no native c-initial
+         words (only French loanwords like 'cami', 'cep').  False positive
+         risk: 'cami' → 'çami' (but 'cami' → 'camı' is the expected fix,
+         and 'c' at word start in Turkish text is overwhelmingly OCR error
+         for 'ç').
+      3. Intervocalic 'g' → 'ğ' — Turkish soft-g between vowels.
+         English has intervocalic 'g' too, so this needs TR indicators.
+      4. Word-final postvocalic 'g' → 'ğ' — English: dog, big, bag, etc.
+      5. Inside-word vowel+'c' → 'ç' — içi, geçti, küçük, açık.
+         English has vowel+'c' too (accept, success), needs TR indicators.
+
+    NOTE: s→ş, ı→i, ü→u, ö→o restoration is NOT done here because
+    these characters are ambiguous without a dictionary or language model.
+    PaddleOCR with lang='tr' + preprocessing should handle these correctly
+    at the model level for well-preprocessed images.
     """
-    # Reported past tense: -miş, -mış, -muş, -müş
-    # Word must have 4+ chars so we don't match "mis" as a standalone word
+    # ── Safe rules (apply always) ──────────────────────────────────────
+    # 1. Reported past tense: -miş/-mış/-muş/-müş
     text = re.sub(r'\b(\w{2,})mis\b', r'\1miş', text)
     text = re.sub(r'\b(\w{2,})mıs\b', r'\1mış', text)
     text = re.sub(r'\b(\w{2,})mus\b', r'\1muş', text)
     text = re.sub(r'\b(\w{2,})müs\b', r'\1müş', text)
-    # Aorist negative: -mez → -mez (no change), but -maz → -maz (also no change)
-    # Future: -ecek/-acak → stays as-is (OCR usually gets these right)
+
+    if not has_tr_indicators:
+        return text
+
+    # ── Turkish-only rules ─────────────────────────────────────────────
+    # 2. Word-initial 'c' → 'ç' (Turkish: overwhelmingly ç, rare c)
+    text = re.sub(r'\bc([a-zğüşıöâî]{2,})\b', r'ç\1', text, flags=re.UNICODE)
+    text = re.sub(r'\bC([a-zğüşıöçâî]{2,})\b', r'Ç\1', text, flags=re.UNICODE)
+
+    # 3. Intervocalic 'g' → 'ğ'
+    text = re.sub(r'([aeıioöuü])g([aeıioöuü])', r'\1ğ\2', text, flags=re.UNICODE)
+    text = re.sub(r'([aeıioöuü])G([AEIİOÖUÜ])', r'\1Ğ\2', text, flags=re.UNICODE)
+
+    # 4. Word-final postvocalic 'g' → 'ğ'
+    text = re.sub(r'([aeıioöuü])g\b', r'\1ğ', text, flags=re.UNICODE)
+
+    # 5. Inside-word vowel+'c' → 'ç' (içi, geçti, küçük, açık)
+    text = re.sub(r'([aeıioöuü])c([aeıioöuüa-z])', r'\1ç\2', text, flags=re.UNICODE)
+
     return text
 
 
