@@ -16,6 +16,7 @@ class BaseOCREngine(abc.ABC):
     def recognize(self, image: Image.Image) -> str:
         """
         Run OCR on the given PIL image and return extracted text.
+        Precondition: load() must have been called and completed.
         """
         ...
 
@@ -33,3 +34,10 @@ class BaseOCREngine(abc.ABC):
         Release loaded resources.
         """
         ...
+
+    def is_loaded(self) -> bool:
+        """
+        Return True if models are loaded and ready for OCR.
+        Default implementation returns False; subclasses should override.
+        """
+        return False

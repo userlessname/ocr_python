@@ -32,3 +32,4 @@ backups/
 .agent/rules/
 antigravity_auto_accept/
 _versions txt/
+.venv-rocm/

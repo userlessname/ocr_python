@@ -1,18 +1,16 @@
-# ── OCR stack (used by server.py) ──────────────────────────────────────────
-paddlepaddle==2.6.2
-paddleocr==2.9.1
+# ── OCR engine (Surya — in-process) ─────────────────────────────────────────
+surya-ocr==0.17.1
+torch>=2.7
+torchvision
+torch-directml  # AMD GPU acceleration on Windows (RX 6650 XT)
 
-# ── OCR HTTP server (FastAPI) ───────────────────────────────────────────────
-fastapi>=0.110
-uvicorn[standard]>=0.27
-python-multipart>=0.0.9
-requests>=2.31
+# ── Image processing ──────────────────────────────────────────────────────────
+pillow>=10.4
+opencv-python>=4.10
+numpy>=1.24,<3.0
 
-# ── Desktop client (SnipOCR UI) ─────────────────────────────────────────────
-pynput==1.8.2
-pystray==0.19.5
-pyperclip==1.11.0
-screeninfo==0.8.1
-pillow==10.4.0
-# PaddleOCR 2.9.1 requires numpy<2.0; loose pin keeps the resolver happy.
-numpy>=1.24,<2.0
+# ── Desktop client (SnipOCR UI) ───────────────────────────────────────────────
+pynput>=1.8
+pystray>=0.19
+pyperclip>=1.11
+screeninfo>=0.8

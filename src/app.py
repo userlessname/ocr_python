@@ -7,9 +7,8 @@ from __future__ import annotations
 import atexit
 import logging
 import signal
-import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor
+import time
 from typing import Optional
 
 import tkinter as tk
@@ -20,7 +19,7 @@ from src.core.state import StateMachine, AppState
 from src.core.hotkey import HotkeyListener
 from src.core.processor import ImageProcessor
 from src.engine.base import BaseOCREngine
-from src.engine.remote_engine import RemoteOCREngine
+from src.engine.local_engine import LocalOCREngine, shutdown_engine
 from src.overlay.snipping import SnippingOverlay
 from src.ui.tray import TrayController
 from src.ui.indicator import OCRIndicator
@@ -30,6 +29,11 @@ from src.platform.windows import (
 )
 
 _logger = logging.getLogger(__name__)
+
+# Maximum seconds to wait for models to load before giving up
+MODEL_LOAD_TIMEOUT = 120
+# Maximum seconds for a single OCR call before watchdog resets state
+OCR_WATCHDOG_SECONDS = 60
 
 
 class SnipOCRApp:
@@ -47,9 +51,11 @@ class SnipOCRApp:
         self._state_machine = StateMachine(on_transition=self._on_state_transition)
         self._processor = ImageProcessor(self._pics_dir)
 
-        # ── OCR engine (HTTP client for the FastAPI server) ──────────────────
-        self._ocr_engine: BaseOCREngine = RemoteOCREngine()
-        self._ocr_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ocr")
+        # ── OCR engine (Surya in-process) ────────────────────────────────────
+        self._ocr_engine: BaseOCREngine = LocalOCREngine()
+        self._ocr_ready = threading.Event()  # set when models are loaded
+        self._ocr_thread: Optional[threading.Thread] = None
+        self._ocr_lock = threading.Lock()  # guard _ocr_thread
 
         # ── UI components ─────────────────────────────────────────────────────
         self._indicator = OCRIndicator(root)
@@ -58,8 +64,6 @@ class SnipOCRApp:
 
         # ── Shutdown flag ─────────────────────────────────────────────────────
         self._shutdown_requested = False
-
-        # ══ Subscribe bus events ══════════════════════════════════════════════
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -72,11 +76,12 @@ class SnipOCRApp:
         tray_thread = threading.Thread(target=self._tray.run, daemon=True)
         tray_thread.start()
 
-        # Preload models in background
+        # Preload Surya models in background
         threading.Thread(target=self._preload_models, daemon=True).start()
 
         # Register exit handlers
         atexit.register(self.shutdown)
+        atexit.register(shutdown_engine)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         register_shutdown_listener(self.shutdown)
@@ -88,14 +93,14 @@ class SnipOCRApp:
         self._root.after(0, self._try_start_snipping)
 
     def shutdown(self, signum=None, frame=None) -> None:
-        """Graceful shutdown – stop all components.
-        Every sub-step is isolated in try/except so one failure does not
-        prevent the next component from being cleaned up.
-        """
+        """Graceful shutdown – stop all components."""
         if self._shutdown_requested:
             return
         self._shutdown_requested = True
         _logger.info("Shutting down SnipOCR...")
+
+        # Signal OCR thread to stop
+        self._ocr_ready.set()
 
         # ── Hotkey listener ───────────────────────────────────────────────────
         try:
@@ -109,18 +114,18 @@ class SnipOCRApp:
         except Exception as exc:
             _logger.warning("Error stopping tray: %s", exc)
 
-        # ── OCR engine (heavy model unload) ───────────────────────────────────
+        # ── Wait for OCR thread to finish ────────────────────────────────────
+        with self._ocr_lock:
+            ocr_thread = self._ocr_thread
+        if ocr_thread is not None and ocr_thread.is_alive():
+            _logger.info("Waiting for OCR thread to finish...")
+            ocr_thread.join(timeout=3)
+
+        # ── OCR engine (Surya model unload) ───────────────────────────────────
         try:
             self._ocr_engine.unload()
         except Exception as exc:
             _logger.warning("Error unloading OCR engine: %s", exc)
-
-        # ── Thread pool executor – try graceful, then force ──────────────────
-        try:
-            self._ocr_executor.shutdown(wait=True, timeout=2)
-        except Exception:
-            _logger.warning("Executor did not finish within 2 s; forcing shutdown.")
-            self._ocr_executor.shutdown(wait=False)
 
         # ── Event bus ─────────────────────────────────────────────────────────
         try:
@@ -170,7 +175,6 @@ class SnipOCRApp:
     def _on_image_captured(self, image) -> None:
         """Handle the snipping overlay result."""
         if image is None:
-            # User cancelled
             self._state_machine.reset()
             self._hotkey.unblock()
             self._tray.set_idle()
@@ -180,21 +184,71 @@ class SnipOCRApp:
             _logger.warning("Could not transition to PROCESSING state.")
             return
 
-        self._ocr_executor.submit(self._ocr_worker, image)
+        # Check if another OCR is already running
+        with self._ocr_lock:
+            if self._ocr_thread is not None and self._ocr_thread.is_alive():
+                _logger.warning("OCR already in progress, skipping new capture.")
+                self._state_machine.reset()
+                self._hotkey.unblock()
+                return
+            self._ocr_thread = threading.Thread(
+                target=self._ocr_worker,
+                args=(image,),
+                daemon=True,
+                name="ocr-worker",
+            )
+            self._ocr_thread.start()
 
     # ── Internal: OCR pipeline ───────────────────────────────────────────────
 
+    def _wait_for_models(self) -> bool:
+        """Wait for the preloader to finish loading Surya models.
+
+        Returns True if models are ready, False on timeout.
+        """
+        if self._ocr_ready.is_set():
+            return True
+        _logger.info("Waiting for Surya models to load...")
+        if not self._ocr_ready.wait(timeout=MODEL_LOAD_TIMEOUT):
+            _logger.error("Model loading timed out after %ds!", MODEL_LOAD_TIMEOUT)
+            return False
+        return True
+
     def _ocr_worker(self, image) -> None:
-        """Run OCR in background thread, then schedule result on main thread."""
+        """Run Surya OCR in background thread, then dispatch to main thread."""
         try:
+            # Wait for models if still loading
+            if not self._wait_for_models():
+                self._root.after(0, self._on_ocr_error, RuntimeError("Model loading timed out"))
+                return
+
+            _logger.info("OCR starting on %dx%d image...", image.width, image.height)
+
+            # Start watchdog timer on main thread
+            self._root.after(OCR_WATCHDOG_SECONDS * 1000, self._ocr_watchdog)
+
+            t0 = time.time()
             text = self._ocr_engine.recognize(image)
+            elapsed = time.time() - t0
+
+            _logger.info("OCR completed in %.1fs (%d chars).", elapsed, len(text))
+
             self._processor.save_image(image)
             self._processor.save_text(text)
-            _logger.info(f"OCR completed ({len(text)} chars).")
             self._root.after(0, self._on_ocr_success, text)
         except Exception as e:
-            _logger.exception("OCR failed")
+            _logger.exception("OCR failed: %s", e)
             self._root.after(0, self._on_ocr_error, e)
+
+    def _ocr_watchdog(self) -> None:
+        """Check if OCR is stuck and recover if needed."""
+        if self._state_machine.state != AppState.PROCESSING:
+            return  # already done
+        _logger.error("OCR watchdog fired — OCR seems stuck, resetting state.")
+        self._state_machine.reset()
+        self._hotkey.unblock()
+        self._tray.set_idle()
+        self._indicator.hide()
 
     def _on_ocr_success(self, text: str) -> None:
         """Called on main thread after successful OCR."""
@@ -203,20 +257,24 @@ class SnipOCRApp:
 
     def _on_ocr_error(self, error: Exception) -> None:
         """Called on main thread after failed OCR."""
-        _logger.error(f"OCR Error: {error}")
+        _logger.error("OCR Error: %s", error)
         self._state_machine.reset()
         self._hotkey.unblock()
 
     # ── Internal: Model preloading ───────────────────────────────────────────
 
     def _preload_models(self) -> None:
-        """Preload OCR models in background so first capture is fast."""
+        """Preload Surya models in background so first capture is fast."""
         try:
-            _logger.info("Preloading OCR models...")
+            _logger.info("Preloading Surya OCR models (this may take a few seconds)...")
+            t0 = time.time()
             self._ocr_engine.load()
-            _logger.info("Models preloaded.")
+            elapsed = time.time() - t0
+            _logger.info("Surya models loaded in %.1fs.", elapsed)
+            self._ocr_ready.set()
         except Exception as e:
-            _logger.warning(f"Model preloading failed (will load on demand): {e}")
+            _logger.exception("Model preloading FAILED: %s", e)
+            self._ocr_ready.set()  # Set anyway so OCR worker doesn't hang forever
 
     # ── Internal: Signal handling ────────────────────────────────────────────
 
