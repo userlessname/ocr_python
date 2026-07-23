@@ -1,13 +1,10 @@
-# ── OCR engine (Surya — in-process) ─────────────────────────────────────────
-surya-ocr==0.17.1
-torch>=2.7
-torchvision
-torch-directml  # AMD GPU acceleration on Windows (RX 6650 XT)
+# ── OCR engine (RapidOCR — in-process) ──────────────────────────────────────
+rapidocr-onnxruntime>=1.3.0
 
 # ── Image processing ──────────────────────────────────────────────────────────
 pillow>=10.4
 opencv-python>=4.10
-numpy>=1.24,<3.0
+numpy>=1.24,<2.0
 
 # ── Desktop client (SnipOCR UI) ───────────────────────────────────────────────
 pynput>=1.8

@@ -1,7 +1,7 @@
 """
 SnipOCR – Entry point.
 Bootstraps the application: creates the Tk root, wires everything, and runs.
-Surya OCR runs in-process — no external server needed.
+RapidOCR runs in-process — no external server needed.
 """
 from __future__ import annotations
 
@@ -10,6 +10,15 @@ import os
 import sys
 import threading
 import warnings
+
+import ctypes
+if sys.platform == "win32":
+    try:
+        # Set process priority to ABOVE_NORMAL (0x00008000) to prevent Windows Scheduler
+        # from throttling background/hidden window tasks on the CPU.
+        ctypes.windll.kernel32.SetPriorityClass(ctypes.windll.kernel32.GetCurrentProcess(), 0x00008000)
+    except Exception:
+        pass
 
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 warnings.filterwarnings("ignore", message=".*np\\.object.*")

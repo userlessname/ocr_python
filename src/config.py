@@ -35,6 +35,33 @@ TRAY_TOOLTIP_BUSY = "\u23f3 OCR processing..."  # hourglass emoji
 HOTKEY_DEBOUNCE_INTERVAL = 2.0
 HOTKEY_SESSION_RECOVERY = 1.5
 
+# ── OCR engine tuning ─────────────────────────────────────────────────────────
+# Detection runs at native resolution (limit_type="max") instead of upscaling
+# every snip to a 960px minimum side. Removes interpolation blur (quality) and
+# cuts detection input pixels by up to 40x on wide command-line snips (speed).
+DET_LIMIT_TYPE = "max"
+DET_LIMIT_SIDE_LEN = 960
+DET_BOX_THRESH = 0.55
+DET_UNCLIP_RATIO = 1.5
+DET_SCORE_MODE = "slow"
+
+# Recognition batch size: more crops per ONNX run call -> less per-call overhead.
+REC_BATCH_NUM = 12
+
+# Height-sensitive upscale tiers for tiny text (bigger glyphs -> better rec).
+SMALL_TEXT_2X_MAX_HEIGHT = 36
+SMALL_TEXT_15X_MAX_HEIGHT = 80
+MAX_UPSCALE_DIM = 2800
+
+# Run one dummy det+rec inference at load time so the first real capture does
+# not pay ONNX Runtime graph-initialization cost.
+ENGINE_WARMUP_ENABLED = True
+
+# Minimum image height (px) for applying the Turkish NLP spell-correction pass.
+TURKISH_CORRECTION_MIN_HEIGHT = 60
+# Upper bound for the per-session spell-correction cache.
+TURKISH_CACHE_MAX_SIZE = 4096
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 def get_pics_dir() -> str:
     """Return the pics directory path (relative to project root)."""

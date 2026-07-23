@@ -51,7 +51,7 @@ class SnipOCRApp:
         self._state_machine = StateMachine(on_transition=self._on_state_transition)
         self._processor = ImageProcessor(self._pics_dir)
 
-        # ── OCR engine (Surya in-process) ────────────────────────────────────
+        # ── OCR engine (RapidOCR in-process) ─────────────────────────────────
         self._ocr_engine: BaseOCREngine = LocalOCREngine()
         self._ocr_ready = threading.Event()  # set when models are loaded
         self._ocr_thread: Optional[threading.Thread] = None
@@ -76,7 +76,7 @@ class SnipOCRApp:
         tray_thread = threading.Thread(target=self._tray.run, daemon=True)
         tray_thread.start()
 
-        # Preload Surya models in background
+        # Preload RapidOCR models in background
         threading.Thread(target=self._preload_models, daemon=True).start()
 
         # Register exit handlers
@@ -121,7 +121,7 @@ class SnipOCRApp:
             _logger.info("Waiting for OCR thread to finish...")
             ocr_thread.join(timeout=3)
 
-        # ── OCR engine (Surya model unload) ───────────────────────────────────
+        # ── OCR engine (RapidOCR model unload) ───────────────────────────────
         try:
             self._ocr_engine.unload()
         except Exception as exc:
@@ -202,20 +202,20 @@ class SnipOCRApp:
     # ── Internal: OCR pipeline ───────────────────────────────────────────────
 
     def _wait_for_models(self) -> bool:
-        """Wait for the preloader to finish loading Surya models.
+        """Wait for the preloader to finish loading RapidOCR models.
 
         Returns True if models are ready, False on timeout.
         """
         if self._ocr_ready.is_set():
             return True
-        _logger.info("Waiting for Surya models to load...")
+        _logger.info("Waiting for RapidOCR models to load...")
         if not self._ocr_ready.wait(timeout=MODEL_LOAD_TIMEOUT):
             _logger.error("Model loading timed out after %ds!", MODEL_LOAD_TIMEOUT)
             return False
         return True
 
     def _ocr_worker(self, image) -> None:
-        """Run Surya OCR in background thread, then dispatch to main thread."""
+        """Run RapidOCR in background thread, then dispatch to main thread."""
         try:
             # Wait for models if still loading
             if not self._wait_for_models():
@@ -233,8 +233,10 @@ class SnipOCRApp:
 
             _logger.info("OCR completed in %.1fs (%d chars).", elapsed, len(text))
 
-            self._processor.save_image(image)
+            # Clipboard first: the user gets the OCR result as early as possible.
+            # The PNG disk save can take 100ms+ on large snips, so it runs after.
             self._processor.save_text(text)
+            self._processor.save_image(image)
             self._root.after(0, self._on_ocr_success, text)
         except Exception as e:
             _logger.exception("OCR failed: %s", e)
@@ -264,13 +266,13 @@ class SnipOCRApp:
     # ── Internal: Model preloading ───────────────────────────────────────────
 
     def _preload_models(self) -> None:
-        """Preload Surya models in background so first capture is fast."""
+        """Preload RapidOCR models in background so first capture is fast."""
         try:
-            _logger.info("Preloading Surya OCR models (this may take a few seconds)...")
+            _logger.info("Preloading RapidOCR models (this may take a few seconds)...")
             t0 = time.time()
             self._ocr_engine.load()
             elapsed = time.time() - t0
-            _logger.info("Surya models loaded in %.1fs.", elapsed)
+            _logger.info("RapidOCR models loaded in %.1fs.", elapsed)
             self._ocr_ready.set()
         except Exception as e:
             _logger.exception("Model preloading FAILED: %s", e)

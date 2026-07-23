@@ -63,18 +63,18 @@ class SnippingOverlay(BaseOverlay):
             f"({monitor['width']}x{monitor['height']} at {monitor['x']},{monitor['y']})"
         )
 
-        # Grab the full virtual screen and crop to target monitor
-        full = ImageGrab.grab(all_screens=True)
-        from screeninfo import get_monitors
-        virtual_left = min(m.x for m in get_monitors())
-        virtual_top = min(m.y for m in get_monitors())
-
-        self._screenshot = full.crop((
-            monitor["x"] - virtual_left,
-            monitor["y"] - virtual_top,
-            monitor["x"] - virtual_left + monitor["width"],
-            monitor["y"] - virtual_top + monitor["height"],
-        ))
+        # Grab only the target monitor's region. Pillow crops inside its C-level
+        # grab using virtual-screen offsets, so this avoids the Python-side full
+        # virtual-screen crop and the extra screeninfo monitor enumeration.
+        self._screenshot = ImageGrab.grab(
+            bbox=(
+                monitor["x"],
+                monitor["y"],
+                monitor["x"] + monitor["width"],
+                monitor["y"] + monitor["height"],
+            ),
+            all_screens=True,
+        )
 
         self.create(monitor["width"], monitor["height"], monitor["x"], monitor["y"])
 
