@@ -1,0 +1,22 @@
+[04:29:22] [src.core.hotkey] INFO: Hotkey listener started (Pause key).
+[04:29:22] [src.app] INFO: Preloading RapidOCR models (this may take a few seconds)...
+[04:29:22] [src.app] INFO: SnipOCR started. Press Pause to capture.
+[04:29:22] [src.engine.local_engine] INFO: Loading RapidOCR models (CPU-only, Zen 5)...
+[04:29:24] [src.engine.local_engine] INFO: Loaded 383296 Turkish words (including dynamic conjugations) in 0.095s.
+[04:29:24] [src.engine.local_engine] INFO: Engine warmup completed in 0.07s.
+[04:29:24] [src.engine.local_engine] INFO: RapidOCR ready (CPU, 6 threads).
+[04:29:24] [src.app] INFO: RapidOCR models loaded in 1.7s.
+[04:29:25] [src.overlay.snipping] INFO: Opening snipping on \\.\DISPLAY1 (2560x1440 at 0,0)
+[04:29:27] [src.app] INFO: OCR starting on 501x41 image...
+[04:29:27] [src.engine.local_engine] INFO:   Preprocess: 0.0s (input 501x41 -> output 781x91)
+[04:29:27] [src.engine.local_engine] INFO:   RapidOCR Inference: 0.3s
+[04:29:27] [src.engine.local_engine] INFO:   Indent & Cleanup: 0.0s | TOTAL: 0.3s | 52 chars
+[04:29:27] [src.app] INFO: OCR completed in 0.3s (52 chars).
+[04:29:27] [src.core.processor] INFO: OCR result (52 chars) saved.
+[04:29:39] [src.overlay.snipping] INFO: Opening snipping on \\.\DISPLAY1 (2560x1440 at 0,0)
+[04:29:41] [src.app] INFO: OCR starting on 391x36 image...
+[04:29:41] [src.engine.local_engine] INFO:   Preprocess: 0.0s (input 391x36 -> output 616x84)
+[04:29:41] [src.engine.local_engine] INFO:   RapidOCR Inference: 0.2s
+[04:29:41] [src.engine.local_engine] INFO:   Indent & Cleanup: 0.0s | TOTAL: 0.2s | 42 chars
+[04:29:41] [src.app] INFO: OCR completed in 0.2s (42 chars).
+[04:29:41] [src.core.processor] INFO: OCR result (42 chars) saved.

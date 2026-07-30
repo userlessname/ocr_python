@@ -30,7 +30,10 @@ class BaseOverlay:
 
     def __del__(self) -> None:
         """Safety net: destroy the overlay window if GC reclaims us."""
-        self.close()
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def create(self, width: int, height: int, x: int, y: int) -> None:
         """Create and show the overlay window."""
@@ -46,7 +49,7 @@ class BaseOverlay:
 
     def close(self) -> None:
         """Destroy the overlay window."""
-        if self._cleaned_up:
+        if self._cleaned_up or self.root is None:
             return
         self._cleaned_up = True
         try:

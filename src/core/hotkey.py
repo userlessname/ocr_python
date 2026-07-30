@@ -31,7 +31,10 @@ class HotkeyListener:
 
     def __del__(self) -> None:
         """Safety net: ensure the listener is stopped on garbage collection."""
-        self.stop()
+        try:
+            self.stop()
+        except Exception:
+            pass
 
     def start(self) -> None:
         if self._listener is not None:
@@ -42,10 +45,16 @@ class HotkeyListener:
         _logger.info("Hotkey listener started (Pause key).")
 
     def stop(self) -> None:
-        if self._listener is not None:
-            self._listener.stop()
-            self._listener = None
-            _logger.info("Hotkey listener stopped.")
+        """Idempotent, exception-safe stop."""
+        listener = self._listener
+        self._listener = None
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception as exc:
+                _logger.warning("Error stopping hotkey listener: %s", exc)
+            else:
+                _logger.info("Hotkey listener stopped.")
 
     def unblock(self) -> None:
         """Re-enable the listener after a trigger has been handled."""

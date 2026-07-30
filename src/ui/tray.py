@@ -45,7 +45,10 @@ class TrayController:
 
     def __del__(self) -> None:
         """Safety net: ensure tray icon is removed on garbage collection."""
-        self.stop()
+        try:
+            self.stop()
+        except Exception:
+            pass
 
     def run(self) -> None:
         """Start the tray icon (blocking – runs its own message loop)."""

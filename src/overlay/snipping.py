@@ -51,6 +51,16 @@ class SnippingOverlay(BaseOverlay):
             self._cancel()
 
     def _start_impl(self) -> None:
+        # Guard: if the main window is already gone, abort immediately
+        try:
+            if not self.parent_root.winfo_exists():
+                _logger.warning("Main window gone; aborting snip.")
+                self._cancel()
+                return
+        except Exception:
+            self._cancel()
+            return
+
         cursor_x, cursor_y = get_cursor_pos()
         monitor = get_monitor_at_point(cursor_x, cursor_y)
         if monitor is None:

@@ -19,7 +19,7 @@ from src.core.state import StateMachine, AppState
 from src.core.hotkey import HotkeyListener
 from src.core.processor import ImageProcessor
 from src.engine.base import BaseOCREngine
-from src.engine.local_engine import LocalOCREngine, shutdown_engine
+from src.engine.local_engine import LocalOCREngine
 from src.overlay.snipping import SnippingOverlay
 from src.ui.tray import TrayController
 from src.ui.indicator import OCRIndicator
@@ -65,6 +65,15 @@ class SnipOCRApp:
         # ── Shutdown flag ─────────────────────────────────────────────────────
         self._shutdown_requested = False
 
+        # ── Tray thread reference (set in start()) ────────────────────────────
+        self._tray_thread: Optional[threading.Thread] = None
+
+        # ── Watchdog timer id (Phase 2) ──────────────────────────────────────
+        self._watchdog_id: Optional[str] = None
+
+        # ── Overlay-active flag (Phase 4) ────────────────────────────────────
+        self._overlay_active = False
+
     # ── Public API ────────────────────────────────────────────────────────────
 
     def start(self) -> None:
@@ -73,15 +82,14 @@ class SnipOCRApp:
         self._hotkey.start()
 
         # Start tray in background thread
-        tray_thread = threading.Thread(target=self._tray.run, daemon=True)
-        tray_thread.start()
+        self._tray_thread = threading.Thread(target=self._tray.run, daemon=True, name="tray")
+        self._tray_thread.start()
 
         # Preload RapidOCR models in background
         threading.Thread(target=self._preload_models, daemon=True).start()
 
         # Register exit handlers
         atexit.register(self.shutdown)
-        atexit.register(shutdown_engine)
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         register_shutdown_listener(self.shutdown)
@@ -90,16 +98,20 @@ class SnipOCRApp:
 
     def request_snipping(self) -> None:
         """Request a new snipping session (thread-safe)."""
-        self._root.after(0, self._try_start_snipping)
+        try:
+            self._root.after(0, self._try_start_snipping)
+        except Exception:
+            _logger.debug("request_snipping: root.after failed (teardown in progress).")
 
     def shutdown(self, signum=None, frame=None) -> None:
-        """Graceful shutdown – stop all components."""
+        """Graceful shutdown – stop all components. Thread-safe (callable from
+        any thread: tray, console handler, signal handler, or main thread)."""
         if self._shutdown_requested:
             return
         self._shutdown_requested = True
         _logger.info("Shutting down SnipOCR...")
 
-        # Signal OCR thread to stop
+        # Signal OCR thread to stop (unblock model-load wait)
         self._ocr_ready.set()
 
         # ── Hotkey listener ───────────────────────────────────────────────────
@@ -121,6 +133,11 @@ class SnipOCRApp:
             _logger.info("Waiting for OCR thread to finish...")
             ocr_thread.join(timeout=3)
 
+        # ── Join tray thread (avoid self-join) ───────────────────────────────
+        if self._tray_thread is not None and threading.current_thread() is not self._tray_thread:
+            _logger.info("Joining tray thread...")
+            self._tray_thread.join(timeout=2)
+
         # ── OCR engine (RapidOCR model unload) ───────────────────────────────
         try:
             self._ocr_engine.unload()
@@ -133,7 +150,17 @@ class SnipOCRApp:
         except Exception as exc:
             _logger.warning("Error clearing bus: %s", exc)
 
-        # ── Tk root ───────────────────────────────────────────────────────────
+        # ── Tk teardown (marshaled to main thread if needed) ─────────────────
+        if threading.current_thread() is threading.main_thread():
+            self._teardown_tk()
+        else:
+            try:
+                self._root.after(0, self._teardown_tk)
+            except Exception:
+                pass  # root already gone; process is exiting anyway
+
+    def _teardown_tk(self) -> None:
+        """Destroy the Tk root. MUST be called only from the main thread."""
         try:
             self._root.quit()
         except Exception:
@@ -162,6 +189,9 @@ class SnipOCRApp:
             _logger.debug("Snipping ignored (not IDLE).")
             return
 
+        # Phase 4: mark overlay as active
+        self._overlay_active = True
+
         overlay = SnippingOverlay(
             parent_root=self._root,
             on_result=self._on_image_captured,
@@ -174,6 +204,9 @@ class SnipOCRApp:
 
     def _on_image_captured(self, image) -> None:
         """Handle the snipping overlay result."""
+        # Phase 4: overlay done, clear active flag
+        self._overlay_active = False
+
         if image is None:
             self._state_machine.reset()
             self._hotkey.unblock()
@@ -224,14 +257,21 @@ class SnipOCRApp:
 
             _logger.info("OCR starting on %dx%d image...", image.width, image.height)
 
-            # Start watchdog timer on main thread
-            self._root.after(OCR_WATCHDOG_SECONDS * 1000, self._ocr_watchdog)
+            # Start watchdog timer on main thread (Phase 2)
+            self._watchdog_id = self._root.after(
+                OCR_WATCHDOG_SECONDS * 1000, self._ocr_watchdog
+            )
 
             t0 = time.time()
             text = self._ocr_engine.recognize(image)
             elapsed = time.time() - t0
 
             _logger.info("OCR completed in %.1fs (%d chars).", elapsed, len(text))
+
+            # Phase 2: late-result guard — if watchdog already fired, drop result
+            if self._state_machine.state != AppState.PROCESSING:
+                _logger.warning("OCR completed after watchdog reset — dropping result.")
+                return
 
             # Clipboard first: the user gets the OCR result as early as possible.
             # The PNG disk save can take 100ms+ on large snips, so it runs after.
@@ -242,8 +282,18 @@ class SnipOCRApp:
             _logger.exception("OCR failed: %s", e)
             self._root.after(0, self._on_ocr_error, e)
 
+    def _cancel_watchdog(self) -> None:
+        """Cancel the OCR watchdog timer (idempotent)."""
+        if self._watchdog_id is not None:
+            try:
+                self._root.after_cancel(self._watchdog_id)
+            except Exception:
+                pass
+            self._watchdog_id = None
+
     def _ocr_watchdog(self) -> None:
         """Check if OCR is stuck and recover if needed."""
+        self._watchdog_id = None  # timer already fired; id is stale
         if self._state_machine.state != AppState.PROCESSING:
             return  # already done
         _logger.error("OCR watchdog fired — OCR seems stuck, resetting state.")
@@ -254,11 +304,13 @@ class SnipOCRApp:
 
     def _on_ocr_success(self, text: str) -> None:
         """Called on main thread after successful OCR."""
+        self._cancel_watchdog()
         self._state_machine.transition_to(AppState.IDLE)
         self._hotkey.unblock()
 
     def _on_ocr_error(self, error: Exception) -> None:
         """Called on main thread after failed OCR."""
+        self._cancel_watchdog()
         _logger.error("OCR Error: %s", error)
         self._state_machine.reset()
         self._hotkey.unblock()

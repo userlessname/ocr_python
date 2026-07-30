@@ -558,9 +558,14 @@ class LocalOCREngine(BaseOCREngine):
                      prep_t, image.width, image.height,
                      proc_np.shape[1], proc_np.shape[0])
 
-        # ── 1) RapidOCR Çıkarımı ───────────────────────────────────────
+        # ── 1) RapidOCR Çıkarımı (lock-protected) ─────────────────────────
+        # Acquire lock to prevent unload() from freeing the ONNX session
+        # while inference is in progress.
         t0 = time.time()
-        results, elapse_list = engine(proc_np)
+        with self._lock:
+            if not self._loaded or self._engine is None or self._engine is not engine:
+                raise RuntimeError("OCR engine was unloaded during preprocessing.")
+            results, elapse_list = engine(proc_np)
         det_t = time.time() - t0
         _logger.info("  RapidOCR Inference: %.1fs", det_t)
 
