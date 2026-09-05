@@ -6,7 +6,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Engine](https://img.shields.io/badge/OCR%20Engine-RapidOCR%20%7C%20ONNX-FF6F00?logo=onnx&logoColor=white)](https://github.com/RapidAI/RapidOCR)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Production-Hardened-success)](FIX_REPORT.md)
+[![Status](https://img.shields.io/badge/Production-Hardened-success)](#-stability--hardening)
 
 ---
 
@@ -92,7 +92,6 @@ ocrPython/
 ├── main.py                     # Application entry point, crash logging, Tk root
 ├── requirements.txt            # Python dependencies
 ├── benchmark_ocr.py            # Comprehensive benchmark & verification suite
-├── FIX_REPORT.md               # Thread safety & stability audit report
 ├── models/                     # In-process models & dictionaries
 │   ├── det_model.onnx          # PP-OCRv5 Detection ONNX model
 │   ├── rec_model.onnx          # Latin PP-OCRv5 Recognition ONNX model
@@ -216,11 +215,11 @@ python scripts/stress_snipocr.py
 
 ## 🛡️ Stability & Hardening
 
-SnipOCR has undergone extensive stress testing and architectural hardening. Refer to [`FIX_REPORT.md`](FIX_REPORT.md) for details on:
-- Prevention of Tkinter cross-thread teardown access violations.
-- Asynchronous watchdog timer race resolution.
-- Thread-safe ONNX model session locking to prevent use-after-free conditions.
-- Windows Per-Monitor V2 DPI awareness and task scheduling priority management.
+SnipOCR has undergone extensive stress testing and architectural hardening. Key stability implementations include:
+- Prevention of Tkinter cross-thread teardown access violations via main-thread GUI marshaling.
+- Asynchronous watchdog timer race resolution ensuring deterministic state transitions.
+- Thread-safe ONNX model session locking to prevent use-after-free conditions during inference.
+- Windows Per-Monitor V2 DPI awareness and task scheduling priority management (`ABOVE_NORMAL_PRIORITY_CLASS`).
 
 ---
 

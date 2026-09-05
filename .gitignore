@@ -31,6 +31,11 @@ crash.log
 # Temporary test files
 _test_*.py
 
+# Markdown files (ignore all except README.md)
+*.md
+!README.md
+!readme.md
+
 # OS
 Thumbs.db
 .DS_Store
