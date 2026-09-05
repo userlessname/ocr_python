@@ -21,6 +21,12 @@ pics/*.txt
 
 # Test outputs (regenerated each test run)
 tests/*_actual.txt
+test_out.txt
+
+# Logs and crash dumps
+*.log
+snipocr.log
+crash.log
 
 # Temporary test files
 _test_*.py
